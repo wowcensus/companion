@@ -1,5 +1,5 @@
 import { createDevice, registerDevice, requireSecret } from "./auth";
-import { handleReceipt, handleUpload } from "./upload";
+import { getObject, handleReceipt, handleUpload, listPending } from "./upload";
 import { fail, json, now, type Env } from "./util";
 
 export default {
@@ -15,6 +15,15 @@ export default {
       if (m && req.method === "GET") return handleReceipt(req, env, ctx, m[1]);
 
       if (path === "/v1/ingest/ack" && req.method === "POST") return ingestAck(req, env);
+      if (path === "/v1/ingest/pending" && req.method === "GET") {
+        const denied = await requireSecret(req, env.INGEST_TOKEN);
+        return denied ?? listPending(env, Number(url.searchParams.get("limit") ?? 50));
+      }
+      m = /^\/v1\/ingest\/object\/([0-9a-f-]{36})$/.exec(path);
+      if (m && req.method === "GET") {
+        const denied = await requireSecret(req, env.INGEST_TOKEN);
+        return denied ?? getObject(env, m[1]);
+      }
 
       if (path === "/v1/admin/devices" && req.method === "POST") return enrol(req, env);
       m = /^\/v1\/admin\/devices\/(dev_[0-9a-f]{20})$/.exec(path);
@@ -35,7 +44,7 @@ async function ingestAck(req: Request, env: Env): Promise<Response> {
   if (!body?.receiptId || !/^[0-9a-f-]{36}$/.test(body.receiptId) || (body.status !== "imported" && body.status !== "failed")) {
     return fail(400, 'Body must be {"receiptId": uuid, "status": "imported"|"failed", "detail"?: string}');
   }
-  const res = await env.DB.prepare("UPDATE receipts SET status = ?, detail = ?, finished_at = ? WHERE id = ? AND status IN ('queued', 'failed', 'imported')")
+  const res = await env.DB.prepare("UPDATE receipts SET status = ?, detail = ?, finished_at = ? WHERE id = ? AND status IN ('stored', 'queued', 'failed', 'imported')")
     .bind(body.status, (body.detail ?? "").slice(0, 500) || null, now(), body.receiptId)
     .run();
   return res.meta.changes ? json({ ok: true }) : fail(404, "Unknown or not-yet-queued receipt");

@@ -77,9 +77,6 @@ func main() {
 	menu := application.NewMenu()
 	menu.Add("Open WoWCensus Companion").OnClick(func(*application.Context) { show() })
 	menu.AddSeparator()
-	menu.Add("Upload now").OnClick(func(*application.Context) { engine.UploadNow() })
-	menu.Add("Back up now").OnClick(func(*application.Context) { engine.BackupNow() })
-	menu.AddSeparator()
 	menu.Add("Quit").OnClick(func(*application.Context) {
 		quitting.Store(true)
 		app.Quit()

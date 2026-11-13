@@ -104,7 +104,7 @@ func findEditionDirs(root string) []string {
 		cur := queue[0]
 		queue = queue[1:]
 		visited++
-		if isDir(filepath.Join(cur.path, "WTF", "Account")) {
+		if isEditionDir(cur.path) {
 			out = append(out, cur.path)
 			continue
 		}
@@ -134,6 +134,21 @@ func findEditionDirs(root string) []string {
 		}
 	}
 	return out
+}
+
+func isEditionDir(p string) bool {
+	if isDir(filepath.Join(p, "WTF", "Account")) {
+		return true
+	}
+	if !editionDirRe.MatchString(filepath.Base(p)) {
+		return false
+	}
+	if isDir(filepath.Join(p, "Interface")) || isDir(filepath.Join(p, "WTF")) {
+		return true
+	}
+	exes, _ := filepath.Glob(filepath.Join(p, "Wow*.exe"))
+	apps, _ := filepath.Glob(filepath.Join(p, "World of Warcraft*.app"))
+	return len(exes) > 0 || len(apps) > 0
 }
 
 func score(name string) int {

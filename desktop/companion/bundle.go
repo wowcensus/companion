@@ -6,28 +6,19 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"runtime"
 	"time"
 )
 
 type Manifest struct {
-	SchemaVersion int         `json:"schemaVersion"`
-	SourceID      string      `json:"sourceId"`
-	Edition       string      `json:"edition"`
-	FileName      string      `json:"fileName"`
-	SHA256        string      `json:"sha256"`
-	Bytes         int64       `json:"bytes"`
-	FileModTime   time.Time   `json:"fileModTime"`
-	CreatedAt     time.Time   `json:"createdAt"`
-	AppVersion    string      `json:"appVersion"`
-	System        *SystemInfo `json:"system,omitempty"`
-}
-
-type SystemInfo struct {
-	OS        string `json:"os"`
-	Arch      string `json:"arch"`
-	NumCPU    int    `json:"numCpu"`
-	GoVersion string `json:"goVersion"`
+	SchemaVersion int       `json:"schemaVersion"`
+	SourceID      string    `json:"sourceId"`
+	Edition       string    `json:"edition"`
+	FileName      string    `json:"fileName"`
+	SHA256        string    `json:"sha256"`
+	Bytes         int64     `json:"bytes"`
+	FileModTime   time.Time `json:"fileModTime"`
+	CreatedAt     time.Time `json:"createdAt"`
+	AppVersion    string    `json:"appVersion"`
 }
 
 type Bundle struct {
@@ -36,7 +27,7 @@ type Bundle struct {
 	ZipSHA   string
 }
 
-func NewManifest(snap *Snapshot, sourceID string, includeSystem bool) Manifest {
+func NewManifest(snap *Snapshot, sourceID string) Manifest {
 	m := Manifest{
 		SchemaVersion: 1,
 		SourceID:      sourceID,
@@ -47,9 +38,6 @@ func NewManifest(snap *Snapshot, sourceID string, includeSystem bool) Manifest {
 		FileModTime:   snap.Sig.ModTime.UTC(),
 		CreatedAt:     snap.TakenAt.UTC(),
 		AppVersion:    AppVersion,
-	}
-	if includeSystem {
-		m.System = &SystemInfo{OS: runtime.GOOS, Arch: runtime.GOARCH, NumCPU: runtime.NumCPU(), GoVersion: runtime.Version()}
 	}
 	return m
 }

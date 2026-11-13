@@ -17,6 +17,7 @@ import (
 type Client struct {
 	ServerURL   string
 	DeviceToken string
+	ClientID    string
 	HTTP        *http.Client
 }
 
@@ -45,7 +46,7 @@ func (e *APIError) Error() string {
 }
 
 func (c *Client) Register(ctx context.Context) (string, string, error) {
-	body, err := json.Marshal(map[string]string{"appVersion": AppVersion, "os": runtime.GOOS})
+	body, err := json.Marshal(map[string]string{"appVersion": AppVersion, "os": runtime.GOOS, "clientId": c.ClientID})
 	if err != nil {
 		return "", "", err
 	}
@@ -87,6 +88,9 @@ func (c *Client) Upload(ctx context.Context, b *Bundle) (Receipt, error) {
 	req.Header.Set("X-WoWCensus-Lua-Bytes", strconv.FormatInt(m.Bytes, 10))
 	req.Header.Set("X-WoWCensus-Edition", m.Edition)
 	req.Header.Set("X-WoWCensus-App-Version", m.AppVersion)
+	if c.ClientID != "" {
+		req.Header.Set("X-WoWCensus-Client-Id", c.ClientID)
+	}
 
 	var out uploadResponse
 	if err := c.do(req, &out); err != nil {
@@ -129,4 +133,20 @@ func (c *Client) do(req *http.Request, out any) error {
 		return fmt.Errorf("unreadable server response: %w", err)
 	}
 	return nil
+}
+
+func (c *Client) ReceiptStatus(ctx context.Context, receiptID string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.ServerURL+"/v1/uploads/"+receiptID, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.DeviceToken)
+	req.Header.Set("User-Agent", "WoWCensusCompanion/"+AppVersion)
+	var out struct {
+		Status string `json:"status"`
+	}
+	if err := c.do(req, &out); err != nil {
+		return "", err
+	}
+	return out.Status, nil
 }

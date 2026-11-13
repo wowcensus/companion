@@ -10,13 +10,15 @@ import (
 
 type CompanionService struct {
 	engine *companion.Engine
+	ctx    context.Context
 	cancel context.CancelFunc
 }
 
-type SettingsView struct {
-	companion.Config
-	Registered bool   `json:"registered"`
-	AppDir     string `json:"appDir"`
+type Settings struct {
+	AutoUpload   bool     `json:"autoUpload"`
+	StartAtLogin bool     `json:"startAtLogin"`
+	WoWRoots     []string `json:"wowRoots"`
+	Registered   bool     `json:"registered"`
 }
 
 func (s *CompanionService) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
@@ -25,9 +27,9 @@ func (s *CompanionService) ServiceStartup(ctx context.Context, _ application.Ser
 			app.Event.Emit("status", st)
 		}
 	})
-	runCtx, cancel := context.WithCancel(context.Background())
-	s.cancel = cancel
-	go s.engine.Run(runCtx)
+	s.ctx, s.cancel = context.WithCancel(context.Background())
+	go s.engine.Run(s.ctx)
+	go s.engine.CheckAddon(s.ctx)
 	return nil
 }
 
@@ -38,15 +40,21 @@ func (s *CompanionService) ServiceShutdown() error {
 	return nil
 }
 
-func (s *CompanionService) GetSettings() SettingsView {
+func (s *CompanionService) GetSettings() Settings {
 	cfg := s.engine.Config()
-	view := SettingsView{Config: cfg, Registered: cfg.DeviceToken != "", AppDir: s.engine.AppDir()}
-	view.DeviceToken = ""
-	view.StartAtLogin = cfg.StartAtLogin && companion.StartAtLoginEnabled()
-	return view
+	return Settings{
+		AutoUpload:   cfg.AutoUpload,
+		StartAtLogin: cfg.StartAtLogin && companion.StartAtLoginEnabled(),
+		WoWRoots:     cfg.WoWRoots,
+		Registered:   cfg.DeviceToken != "",
+	}
 }
 
-func (s *CompanionService) SaveSettings(cfg companion.Config) (SettingsView, error) {
+func (s *CompanionService) SaveSettings(in Settings) (Settings, error) {
+	cfg := s.engine.Config()
+	cfg.AutoUpload = in.AutoUpload
+	cfg.StartAtLogin = in.StartAtLogin
+	cfg.WoWRoots = in.WoWRoots
 	if err := s.engine.UpdateConfig(cfg); err != nil {
 		return s.GetSettings(), err
 	}
@@ -59,8 +67,6 @@ func (s *CompanionService) DetectInstalls(extraRoots []string) []companion.Saved
 	return companion.DiscoverWithDefaults(extraRoots)
 }
 
-func (s *CompanionService) ScanNow()   { s.engine.ScanNow() }
-func (s *CompanionService) UploadNow() { s.engine.UploadNow() }
-func (s *CompanionService) BackupNow() { s.engine.BackupNow() }
-
-func (s *CompanionService) MaintenanceReport() companion.MaintenanceReport { return s.engine.Report() }
+func (s *CompanionService) InstallAddon() (string, error) {
+	return s.engine.InstallAddon(s.ctx)
+}

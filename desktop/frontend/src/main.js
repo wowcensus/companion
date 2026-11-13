@@ -10,32 +10,65 @@ const when = (t) => {
   if (isNaN(d.getTime()) || d.getFullYear() < 2000) return "—";
   return d.toLocaleDateString() + " " + d.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
 };
-const editions = {retail: "Retail", classic_era: "Classic Era", anniversary: "TBC Anniversary", classic: "MoP Classic", forever: "Forever", ptr: "PTR", beta: "Beta", xptr: "PTR"};
+const editions = {retail: "Retail", classic_era: "Classic Era", anniversary: "TBC Anniversary", classic: "MoP Classic", forever: "Forever", classic_beta: "Classic Beta", ptr: "PTR", xptr: "PTR", beta: "Beta"};
 const editionName = (e) => editions[e] || String(e || "").replace(/_/g, " ");
-const buttonLabels = {"#btn-scan": "Scan", "#btn-upload": "Upload now", "#btn-backup": "Back up now"};
-let pressed = null;
-
-function press(sel, label, call) {
-  const b = $(sel);
-  pressed = sel;
-  b.disabled = true;
-  b.textContent = label;
-  call().catch((err) => {
-    b.disabled = false;
-    b.textContent = buttonLabels[sel];
-    alert(String(err?.message || err));
-  });
-}
 
 document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => {
   document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("active", x === b));
   document.querySelectorAll(".panel").forEach((p) => p.classList.toggle("active", p.id === "tab-" + b.dataset.tab));
-  if (b.dataset.tab === "maintenance") loadReport();
 }));
+
+let installing = false;
+
+function uploadCell(f, autoUpload) {
+  const r = f.lastReceipt;
+  if (f.uploaded && r?.status === "imported") return `<span class="pill ok">On wowcensus.io</span>`;
+  if (f.uploaded && r?.status === "failed") return `<span class="pill warn" title="The server could not use this save">Not used</span>`;
+  if (f.uploaded) return `<span class="pill ok" title="Waiting to be added to wowcensus.io">Uploaded ${when(r?.at)}</span>`;
+  if (f.nextRetry) return `<span class="pill err" title="${esc(f.lastError)}">Retrying ${when(f.nextRetry)}</span>`;
+  if (f.lastError) return `<span class="pill warn" title="${esc(f.lastError)}">${esc(f.lastError)}</span>`;
+  if (!autoUpload) return `<span class="pill">Uploads off</span>`;
+  return `<span class="pill">Waiting…</span>`;
+}
+
+function renderAddon(a) {
+  const installs = a?.installs || [];
+  const latest = a?.latest || "";
+  const list = $("#addon-list");
+  const btn = $("#btn-addon");
+  if (!installs.length) {
+    $("#addon-summary").textContent = "No World of Warcraft installation found. If WoW is installed somewhere unusual, add its folder in Settings.";
+    list.innerHTML = "";
+    btn.hidden = true;
+    return;
+  }
+  list.innerHTML = installs.map((i) => {
+    const state = !i.installed
+      ? `<span class="pill">Not installed</span>`
+      : latest && i.installed !== latest
+        ? `<span class="pill warn">Version ${esc(i.installed)}, update available</span>`
+        : `<span class="pill ok">Installed ${esc(i.installed)}</span>`;
+    return `<li><span>${esc(editionName(i.edition))}</span>${state}</li>`;
+  }).join("");
+  const missing = installs.filter((i) => !i.installed).length;
+  const outdated = latest ? installs.filter((i) => i.installed && i.installed !== latest).length : 0;
+  if (missing || outdated) {
+    $("#addon-summary").textContent = missing
+      ? `Not installed for ${missing} of your ${installs.length} game version${installs.length === 1 ? "" : "s"}.`
+      : "An update is available.";
+    if (!installing) btn.textContent = missing ? "Install add-on" : "Update add-on";
+    btn.hidden = false;
+  } else {
+    $("#addon-summary").textContent = latest ? `Up to date (version ${latest}) in all your game versions.` : "Installed in all your game versions.";
+    btn.hidden = true;
+  }
+  if (!installing) btn.disabled = false;
+  if (a?.error && !latest && !$("#addon-msg").textContent) $("#addon-msg").textContent = a.error;
+}
 
 function renderStatus(s) {
   const files = s.files || [];
-  const busy = s.busy ? ` · ${s.busy}…` : "";
+  const busy = s.busy === "Uploading" ? " · uploading…" : "";
   $("#summary").textContent =
     `${s.running ? "Watching for new saves" : "Stopped"} · uploads ${s.autoUpload ? "on" : "off"} · last checked ${when(s.lastScan)}${busy}`;
   $("#consent-banner").hidden = !!s.autoUpload;
@@ -49,22 +82,10 @@ function renderStatus(s) {
   $("#found").className = "found " + (files.length ? "ok" : scanned ? "warn" : "");
   $("#files-table").hidden = files.length === 0;
   $("#no-files").hidden = files.length > 0 || !scanned;
-  if (!s.busy && pressed) {
-    $(pressed).disabled = false;
-    $(pressed).textContent = buttonLabels[pressed];
-    pressed = null;
-  }
-  $("#files").innerHTML = files.map((f) => {
-    let up;
-    if (f.uploaded) up = `<span class="pill ok">Queued ${when(f.lastReceipt?.at)}</span>`;
-    else if (f.nextRetry) up = `<span class="pill err" title="${esc(f.lastError)}">Retry ${when(f.nextRetry)}</span>`;
-    else if (f.lastError) up = `<span class="pill warn" title="${esc(f.lastError)}">${esc(f.lastError)}</span>`;
-    else up = `<span class="pill">Not uploaded</span>`;
-    return `<tr title="${esc(f.path)}">
+  $("#files").innerHTML = files.map((f) => `<tr title="${esc(f.path)}">
       <td>${esc(editionName(f.edition))}</td><td>${esc(f.account)}</td>
-      <td class="${f.overThreshold ? "big" : ""}">${mb(f.bytes)}</td>
-      <td>${when(f.modTime)}</td><td>${up}</td></tr>`;
-  }).join("");
+      <td>${mb(f.bytes)}</td><td>${when(f.modTime)}</td><td>${uploadCell(f, s.autoUpload)}</td></tr>`).join("");
+  renderAddon(s.addon);
   const log = s.log || [];
   $("#log").innerHTML = log.slice().reverse().map((l) =>
     `<li class="${esc(l.level)}"><time>${when(l.at)}</time> ${esc(l.message)}</li>`).join("");
@@ -73,34 +94,37 @@ function renderStatus(s) {
 Events.On("status", (ev) => renderStatus(ev.data));
 CompanionService.GetStatus().then(renderStatus);
 
-$("#btn-scan").onclick = () => press("#btn-scan", "Scanning…", CompanionService.ScanNow);
-$("#btn-upload").onclick = () => press("#btn-upload", "Uploading…", CompanionService.UploadNow);
-$("#btn-backup").onclick = () => press("#btn-backup", "Backing up…", CompanionService.BackupNow);
+$("#btn-addon").onclick = async () => {
+  const btn = $("#btn-addon");
+  installing = true;
+  btn.disabled = true;
+  btn.textContent = "Installing…";
+  $("#addon-msg").textContent = "";
+  try {
+    $("#addon-msg").textContent = (await CompanionService.InstallAddon()) + " Restart World of Warcraft (or type /reload) to load it.";
+  } catch (err) {
+    $("#addon-msg").textContent = String(err?.message || err);
+  } finally {
+    installing = false;
+    btn.disabled = false;
+    CompanionService.GetStatus().then(renderStatus);
+  }
+};
 
 const form = $("#settings");
-const numFields = ["sizeThresholdMB", "backupKeep", "backupCapMB", "pollSeconds"];
-const boolFields = ["autoUpload", "includeSystemInfo", "startAtLogin", "autoBackup"];
 
 function fillSettings(v) {
-  boolFields.forEach((k) => form.elements[k].checked = !!v[k]);
-  numFields.forEach((k) => form.elements[k].value = v[k] ?? "");
-  form.elements.serverUrl.value = v.serverUrl || "";
-  form.elements.backupDir.value = v.backupDir || "";
+  form.elements.autoUpload.checked = !!v.autoUpload;
+  form.elements.startAtLogin.checked = !!v.startAtLogin;
   form.elements.wowRoots.value = (v.wowRoots || []).join("\n");
-  $("#device-hint").textContent = v.registered
-    ? `This computer is registered (${v.deviceId}).`
-    : "This computer registers itself automatically with the first upload.";
 }
 
 function readSettings() {
-  const cfg = {
-    serverUrl: form.elements.serverUrl.value.trim(),
-    backupDir: form.elements.backupDir.value.trim(),
+  return {
+    autoUpload: form.elements.autoUpload.checked,
+    startAtLogin: form.elements.startAtLogin.checked,
     wowRoots: form.elements.wowRoots.value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean),
   };
-  boolFields.forEach((k) => cfg[k] = form.elements[k].checked);
-  numFields.forEach((k) => cfg[k] = parseInt(form.elements[k].value, 10) || 0);
-  return cfg;
 }
 
 function msg(text, isErr) {
@@ -111,12 +135,8 @@ function msg(text, isErr) {
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
-  const cfg = readSettings();
-  if (cfg.autoUpload && !confirm("Turn on automatic uploads? Your WoWCensus.lua will be sent to " + (cfg.serverUrl || "the server") + " each time it changes.")) {
-    return;
-  }
   try {
-    fillSettings(await CompanionService.SaveSettings(cfg));
+    fillSettings(await CompanionService.SaveSettings(readSettings()));
     msg("Saved.");
   } catch (err) {
     msg(String(err?.message || err), true);
@@ -128,7 +148,6 @@ $("#btn-enable").onclick = async () => {
     const cfg = await CompanionService.GetSettings();
     cfg.autoUpload = true;
     fillSettings(await CompanionService.SaveSettings(cfg));
-    CompanionService.UploadNow();
   } catch (err) {
     alert(String(err?.message || err));
   }
@@ -139,20 +158,7 @@ $("#btn-detect").onclick = async () => {
   const found = await CompanionService.DetectInstalls(roots);
   $("#detected").innerHTML = found.length
     ? found.map((f) => `<li><b>${esc(editionName(f.edition))}</b> · ${esc(f.account)}<br><small>${esc(f.path)}</small></li>`).join("")
-    : "<li class='muted'>Nothing found. Check the folder and that WoWCensus has saved at least once (/reload).</li>";
+    : "<li class='muted'>No WoWCensus saves found in those folders yet.</li>";
 };
 
 CompanionService.GetSettings().then(fillSettings);
-
-async function loadReport() {
-  const r = await CompanionService.MaintenanceReport();
-  const rows = (r.files || []).map((f) =>
-    `<tr><td>${esc(editionName(f.edition))}</td><td>${esc(f.account)}</td><td class="${f.overThreshold ? "big" : ""}">${mb(f.bytes)}</td>
-     <td>${f.overThreshold ? "Above " + r.thresholdMB + " MB" : "OK"}</td></tr>`).join("");
-  $("#report").innerHTML = `
-    <table class="files"><thead><tr><th>Edition</th><th>Account</th><th>Size</th><th>Check</th></tr></thead><tbody>${rows}</tbody></table>
-    <p><b>Backups:</b> ${r.backupCount} file(s), ${mb(r.backupBytes)} of ${r.backupCapMB} MB cap, ${r.backupKeep} generation(s) per file<br>
-    <small>${esc(r.backupDir)}</small></p>
-    <ul class="notes">${(r.notes || []).map((n) => `<li>${esc(n)}</li>`).join("")}</ul>`;
-}
-$("#btn-report").onclick = loadReport;

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -35,6 +36,7 @@ type Status struct {
 	LastScan   time.Time    `json:"lastScan"`
 	AutoUpload bool         `json:"autoUpload"`
 	Files      []FileStatus `json:"files"`
+	Addon      AddonStatus  `json:"addon"`
 	Log        []LogEntry   `json:"log"`
 }
 
@@ -70,9 +72,15 @@ type Engine struct {
 
 	actions chan action
 
-	now       func() time.Time
-	newClient func(serverURL, token string) *Client
-	discover  func(roots []string) []SavedVarFile
+	now              func() time.Time
+	newClient        func(serverURL, token string) *Client
+	discover         func(roots []string) []SavedVarFile
+	discoverEditions func(roots []string) []string
+	httpClient       *http.Client
+
+	addonLatest   AddonRelease
+	addonLatestAt time.Time
+	addonErr      string
 }
 
 const maxLog = 200
@@ -92,12 +100,15 @@ func NewEngine(appDir string) (*Engine, error) {
 	}
 	e := &Engine{
 		appDir: appDir, state: st, cfg: cfg,
-		actions:   make(chan action, 8),
-		now:       time.Now,
-		newClient: NewClient,
-		discover:  DiscoverWithDefaults,
+		actions:          make(chan action, 8),
+		now:              time.Now,
+		newClient:        NewClient,
+		discover:         DiscoverWithDefaults,
+		discoverEditions: DiscoverEditionsWithDefaults,
+		httpClient:       &http.Client{Timeout: addonDownloadLimit},
 	}
 	e.status.Files = []FileStatus{}
+	e.status.Addon.Installs = []AddonInstall{}
 	e.status.Log = []LogEntry{}
 	if cfgErr != nil {
 		e.logf("error", "%v (defaults loaded)", cfgErr)
@@ -168,7 +179,9 @@ func (e *Engine) ensureDevice(ctx context.Context) (string, error) {
 	if cfg.DeviceToken != "" {
 		return cfg.DeviceToken, nil
 	}
-	id, token, err := e.newClient(cfg.ServerURL, "").Register(ctx)
+	c := e.newClient(cfg.ServerURL, "")
+	c.ClientID = e.state.ClientID()
+	id, token, err := c.Register(ctx)
 	if err != nil {
 		return "", fmt.Errorf("registering this computer: %w", err)
 	}
@@ -351,8 +364,14 @@ func (e *Engine) reconcile(ctx context.Context, a action) {
 		e.logf("warn", "No WoWCensus.lua found to back up")
 	}
 
+	if cfg.AutoUpload && cfg.DeviceToken != "" {
+		e.refreshReceipts(ctx, cfg, statuses)
+	}
+	addon := e.addonStatus(cfg)
+
 	e.mu.Lock()
 	e.status.Files = statuses
+	e.status.Addon = addon
 	e.status.LastScan = e.now().UTC()
 	e.status.AutoUpload = cfg.AutoUpload
 	e.mu.Unlock()
@@ -360,7 +379,7 @@ func (e *Engine) reconcile(ctx context.Context, a action) {
 }
 
 func (e *Engine) upload(ctx context.Context, cfg Config, snap *Snapshot, sourceID string) {
-	m := NewManifest(snap, sourceID, cfg.IncludeSystemInfo)
+	m := NewManifest(snap, sourceID)
 	b, err := BuildBundle(snap, m)
 	if err != nil {
 		e.logf("error", "Bundle failed: %v", err)
@@ -371,13 +390,15 @@ func (e *Engine) upload(ctx context.Context, cfg Config, snap *Snapshot, sourceI
 	token, err := e.ensureDevice(ctx)
 	if err == nil {
 		var r Receipt
-		r, err = e.newClient(cfg.ServerURL, token).Upload(ctx, b)
+		c := e.newClient(cfg.ServerURL, token)
+		c.ClientID = e.state.ClientID()
+		r, err = c.Upload(ctx, b)
 		if err == nil {
 			_ = e.state.PutReceipt(r)
 			if r.Duplicate {
 				e.logf("info", "%s: server already has this version", label)
 			} else {
-				e.logf("info", "%s queued for import (receipt %s). Queued is not yet imported.", label, r.ReceiptID)
+				e.logf("info", "%s uploaded. It will appear on wowcensus.io after the next import.", label)
 			}
 			return
 		}
@@ -464,4 +485,119 @@ func humanBytes(n int64) string {
 		return fmt.Sprintf("%.1f KB", float64(n)/(1<<10))
 	}
 	return fmt.Sprintf("%d B", n)
+}
+
+const receiptCheckEvery = 10 * time.Minute
+
+func (e *Engine) refreshReceipts(ctx context.Context, cfg Config, files []FileStatus) {
+	client := e.newClient(cfg.ServerURL, cfg.DeviceToken)
+	for i := range files {
+		r := files[i].LastReceipt
+		if r == nil || r.ReceiptID == "" || (r.Status != "queued" && r.Status != "stored") || e.now().Sub(r.CheckedAt) < receiptCheckEvery {
+			continue
+		}
+		status, err := client.ReceiptStatus(ctx, r.ReceiptID)
+		if err != nil {
+			continue
+		}
+		updated := *r
+		updated.Status, updated.CheckedAt = status, e.now().UTC()
+		_ = e.state.PutReceipt(updated)
+		files[i].LastReceipt = &updated
+		if status == "imported" {
+			e.logf("info", "%s / %s is now on wowcensus.io", files[i].Edition, files[i].Account)
+		}
+	}
+}
+
+func (e *Engine) addonStatus(cfg Config) AddonStatus {
+	installs := AddonInstalls(e.discoverEditions(cfg.WoWRoots))
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return AddonStatus{Latest: e.addonLatest.Version, Installs: installs, Error: e.addonErr}
+}
+
+func (e *Engine) latestAddon(ctx context.Context, force bool) (AddonRelease, error) {
+	e.mu.Lock()
+	cached, at := e.addonLatest, e.addonLatestAt
+	e.mu.Unlock()
+	if !force && cached.ZipURL != "" && e.now().Sub(at) < addonLatestMaxAge {
+		return cached, nil
+	}
+	rel, err := FetchLatestAddon(ctx, e.httpClient)
+	e.mu.Lock()
+	if err != nil {
+		e.addonErr = "Couldn't check GitHub for the add-on right now."
+	} else {
+		e.addonLatest, e.addonLatestAt, e.addonErr = rel, e.now(), ""
+	}
+	e.mu.Unlock()
+	return rel, err
+}
+
+func (e *Engine) CheckAddon(ctx context.Context) AddonStatus {
+	_, _ = e.latestAddon(ctx, false)
+	st := e.addonStatus(e.Config())
+	e.mu.Lock()
+	e.status.Addon = st
+	e.mu.Unlock()
+	e.notify()
+	return st
+}
+
+func (e *Engine) InstallAddon(ctx context.Context) (string, error) {
+	editions := e.discoverEditions(e.Config().WoWRoots)
+	if len(editions) == 0 {
+		return "", errors.New("no World of Warcraft installation found; add your WoW folder in Settings")
+	}
+	rel, err := e.latestAddon(ctx, true)
+	if err != nil {
+		return "", fmt.Errorf("couldn't find the add-on download: %w", err)
+	}
+	data, err := DownloadAddon(ctx, e.httpClient, rel)
+	if err != nil {
+		return "", err
+	}
+	var done, failed []string
+	for _, ed := range editions {
+		label := editionLabel(editionName(ed))
+		if err := InstallAddonFiles(ed, data); err != nil {
+			failed = append(failed, label)
+			e.logf("error", "Add-on install for %s failed: %v", label, err)
+			continue
+		}
+		done = append(done, label)
+	}
+	e.CheckAddon(ctx)
+	if len(done) == 0 {
+		return "", fmt.Errorf("the add-on could not be installed (%s). Close World of Warcraft and try again", strings.Join(failed, ", "))
+	}
+	msg := fmt.Sprintf("Installed WoWCensus %s for %s.", rel.Version, strings.Join(done, ", "))
+	if len(failed) > 0 {
+		msg += fmt.Sprintf(" Couldn't install for %s; close World of Warcraft and try again.", strings.Join(failed, ", "))
+	}
+	e.logf("info", "%s Restart World of Warcraft (or /reload) to load it.", msg)
+	return msg, nil
+}
+
+func editionLabel(key string) string {
+	switch key {
+	case "retail":
+		return "Retail"
+	case "classic_era":
+		return "Classic Era"
+	case "anniversary":
+		return "TBC Anniversary"
+	case "classic":
+		return "MoP Classic"
+	case "forever":
+		return "Forever"
+	case "classic_beta":
+		return "Classic Beta"
+	case "ptr", "xptr":
+		return "PTR"
+	case "beta":
+		return "Beta"
+	}
+	return strings.ReplaceAll(key, "_", " ")
 }

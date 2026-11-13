@@ -93,7 +93,7 @@ func TestSnapshotRejectsFreshAndChangingFiles(t *testing.T) {
 
 func TestBundleContainsManifestAndLua(t *testing.T) {
 	snap := &Snapshot{File: SavedVarFile{Edition: "retail", Path: "/secret/path"}, Data: []byte("WoWCensusDB = {}"), SHA256: strings.Repeat("a", 64), TakenAt: time.Now()}
-	m := NewManifest(snap, strings.Repeat("b", 64), false)
+	m := NewManifest(snap, strings.Repeat("b", 64))
 	b, err := BuildBundle(snap, m)
 	if err != nil {
 		t.Fatal(err)
@@ -246,6 +246,7 @@ func TestEngineUploadsOnceThenOnChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.discover = func([]string) []SavedVarFile { return Discover([]string{root}) }
+	e.discoverEditions = func([]string) []string { return DiscoverEditions([]string{root}) }
 	cfg := e.Config()
 	cfg.ServerURL, cfg.AutoUpload, cfg.AutoBackup = srv.URL, true, true
 	if err := e.UpdateConfig(cfg); err != nil {
@@ -267,6 +268,7 @@ func TestEngineUploadsOnceThenOnChange(t *testing.T) {
 	e.RunOnce(ctx, false, false)
 	e2, _ := NewEngine(appDir)
 	e2.discover = e.discover
+	e2.discoverEditions = e.discoverEditions
 	e2.RunOnce(ctx, false, false)
 	if fs.puts.Load() != 1 {
 		t.Fatalf("dedup failed: %d uploads", fs.puts.Load())
@@ -307,6 +309,7 @@ func TestEngineRespectsConsentAndBacksOff(t *testing.T) {
 
 	e, _ := NewEngine(t.TempDir())
 	e.discover = func([]string) []SavedVarFile { return Discover([]string{root}) }
+	e.discoverEditions = func([]string) []string { return DiscoverEditions([]string{root}) }
 	cfg := e.Config()
 	cfg.ServerURL = srv.URL
 	if err := e.UpdateConfig(cfg); err != nil {
@@ -359,5 +362,129 @@ func TestConfigValidation(t *testing.T) {
 	}
 	if got := (Config{DeviceToken: "abcdefgh"}).Redacted().DeviceToken; strings.Contains(got, "abcd") {
 		t.Fatalf("token not redacted: %s", got)
+	}
+}
+
+func addonZip(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for name, body := range files {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = w.Write([]byte(body))
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func TestAddonInstallAndUpdate(t *testing.T) {
+	root := t.TempDir()
+	ed := filepath.Join(root, "World of Warcraft", "_classic_era_")
+	if err := os.MkdirAll(filepath.Join(ed, "Interface"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if eds := DiscoverEditions([]string{root}); len(eds) != 1 || pathKey(eds[0]) != pathKey(ed) {
+		t.Fatalf("edition without saves not detected: %v", eds)
+	}
+	if InstalledAddonVersion(ed) != "" {
+		t.Fatal("reported an add-on that is not installed")
+	}
+	v1 := addonZip(t, map[string]string{"WoWCensus/WoWCensus.toc": "## Title: WoWCensus\n## Version: 0.1.8\n", "WoWCensus/Core.lua": "x=1", "WoWCensus/Population/Old.lua": "old"})
+	if err := InstallAddonFiles(ed, v1); err != nil {
+		t.Fatal(err)
+	}
+	if v := InstalledAddonVersion(ed); v != "0.1.8" {
+		t.Fatalf("installed version %q", v)
+	}
+	v2 := addonZip(t, map[string]string{"WoWCensus/WoWCensus.toc": "## Version: 0.1.9\n", "WoWCensus/Core.lua": "x=2"})
+	if err := InstallAddonFiles(ed, v2); err != nil {
+		t.Fatal(err)
+	}
+	if v := InstalledAddonVersion(ed); v != "0.1.9" {
+		t.Fatalf("updated version %q", v)
+	}
+	if _, err := os.Stat(filepath.Join(addonDir(ed), "Population", "Old.lua")); !os.IsNotExist(err) {
+		t.Fatal("stale file from the old version survived the update")
+	}
+	entries, _ := os.ReadDir(filepath.Join(ed, "Interface", "AddOns"))
+	if len(entries) != 1 {
+		t.Fatalf("temporary folders left behind: %v", entries)
+	}
+}
+
+func TestAddonZipRejectsEscapes(t *testing.T) {
+	ed := t.TempDir()
+	for _, bad := range []map[string]string{
+		{"WoWCensus/WoWCensus.toc": "x", "../evil.lua": "x"},
+		{"WoWCensus/WoWCensus.toc": "x", "WoWCensus/../../evil.lua": "x"},
+		{"WoWCensus/WoWCensus.toc": "x", "OtherAddon/Core.lua": "x"},
+		{"WoWCensus/Core.lua": "no toc"},
+	} {
+		if err := InstallAddonFiles(ed, addonZip(t, bad)); err == nil {
+			t.Fatalf("accepted bad zip %v", bad)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(ed), "evil.lua")); err == nil {
+		t.Fatal("wrote outside the add-on folder")
+	}
+}
+
+func TestFetchLatestAddon(t *testing.T) {
+	zipData := addonZip(t, map[string]string{"WoWCensus/WoWCensus.toc": "## Version: 0.2.0\n"})
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/zip" {
+			_, _ = w.Write(zipData)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"tag_name": "v0.2.0", "assets": []map[string]any{
+			{"name": "Core.lua", "browser_download_url": srv.URL + "/nope", "size": 1},
+			{"name": "WoWCensus-0.2.0.zip", "browser_download_url": srv.URL + "/zip", "size": len(zipData)},
+		}})
+	}))
+	defer srv.Close()
+	old := AddonReleaseAPI
+	AddonReleaseAPI = srv.URL + "/latest"
+	defer func() { AddonReleaseAPI = old }()
+	rel, err := FetchLatestAddon(context.Background(), srv.Client())
+	if err != nil || rel.Version != "0.2.0" || !strings.HasSuffix(rel.ZipURL, "/zip") {
+		t.Fatalf("release %+v err %v", rel, err)
+	}
+	data, err := DownloadAddon(context.Background(), srv.Client(), rel)
+	if err != nil || !bytes.Equal(data, zipData) {
+		t.Fatalf("download err %v", err)
+	}
+}
+
+func TestClientIDIsStableAndSent(t *testing.T) {
+	dir := t.TempDir()
+	s1, _ := LoadState(dir)
+	s2, _ := LoadState(dir)
+	id := s1.ClientID()
+	if len(id) != 32 || id != s2.ClientID() {
+		t.Fatalf("client id %q not stable", id)
+	}
+	other, _ := LoadState(t.TempDir())
+	if other.ClientID() == id {
+		t.Fatal("client id is not unique per install")
+	}
+	got := ""
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("X-WoWCensus-Client-Id")
+		w.WriteHeader(201)
+		_ = json.NewEncoder(w).Encode(uploadResponse{Status: "queued", ReceiptID: "r"})
+	}))
+	defer srv.Close()
+	snap := &Snapshot{File: SavedVarFile{Edition: "retail"}, Data: []byte("WoWCensusDB = {}"), SHA256: strings.Repeat("a", 64), TakenAt: time.Now()}
+	b, _ := BuildBundle(snap, NewManifest(snap, strings.Repeat("b", 64)))
+	c := NewClient(srv.URL, "tok")
+	c.ClientID = id
+	if _, err := c.Upload(context.Background(), b); err != nil || got != id {
+		t.Fatalf("client id header %q err %v", got, err)
 	}
 }

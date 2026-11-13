@@ -19,10 +19,6 @@ database_name = "wowcensus"
 database_id = "6e64e724-848b-4f88-beb0-d3ecf4988d9d"
 migrations_dir = "migrations"
 
-[[queues.producers]]
-binding = "INGEST"
-queue = "wowcensus-ingest"
-
 [[ratelimits]]
 name = "IP_LIMITER"
 namespace_id = "1001"

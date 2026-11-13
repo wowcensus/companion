@@ -27,11 +27,11 @@ export async function requireSecret(req: Request, secret: string | undefined): P
   return null;
 }
 
-export async function createDevice(env: Env, label: string | null, regIpHash: string | null): Promise<{ deviceId: string; token: string }> {
+export async function createDevice(env: Env, label: string | null, regIpHash: string | null, clientId: string | null = null): Promise<{ deviceId: string; token: string }> {
   const token = randomToken();
   const deviceId = "dev_" + (await sha256Hex("device:" + crypto.randomUUID())).slice(0, 20);
-  await env.DB.prepare("INSERT INTO devices (id, token_sha256, label, created_at, reg_ip_hash) VALUES (?, ?, ?, ?, ?)")
-    .bind(deviceId, await sha256Hex(token), label, now(), regIpHash)
+  await env.DB.prepare("INSERT INTO devices (id, token_sha256, label, created_at, reg_ip_hash, client_id) VALUES (?, ?, ?, ?, ?, ?)")
+    .bind(deviceId, await sha256Hex(token), label, now(), regIpHash, clientId)
     .run();
   return { deviceId, token };
 }
@@ -47,8 +47,9 @@ export async function registerDevice(req: Request, env: Env): Promise<Response> 
   if ((recent?.n ?? 0) >= Number(env.REGISTRATIONS_PER_IP_PER_DAY)) {
     return fail(429, "Too many registrations from this network today", { "retry-after": "3600" });
   }
-  const body = (await req.json().catch(() => ({}))) as { appVersion?: unknown; os?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { appVersion?: unknown; os?: unknown; clientId?: unknown };
+  const clientId = typeof body.clientId === "string" && /^[0-9a-f]{32}$/.test(body.clientId) ? body.clientId : null;
   const clean = (v: unknown) => (typeof v === "string" ? v.replace(/[^\w.+-]/g, "").slice(0, 40) : "");
   const label = ["companion", clean(body.appVersion), clean(body.os)].filter(Boolean).join(" ");
-  return json(await createDevice(env, label, ipHash), 201);
+  return json(await createDevice(env, label, ipHash, clientId), 201);
 }

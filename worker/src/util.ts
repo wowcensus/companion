@@ -1,7 +1,6 @@
 export interface Env {
   UPLOADS: R2Bucket;
   DB: D1Database;
-  INGEST: Queue<IngestJob>;
   IP_LIMITER: RateLimit;
   DEVICE_LIMITER: RateLimit;
   ADMIN_TOKEN: string;
@@ -10,21 +9,6 @@ export interface Env {
   REGISTRATIONS_PER_IP_PER_DAY: string;
   MAX_ZIP_BYTES: string;
   MAX_LUA_BYTES: string;
-}
-
-export interface IngestJob {
-  receiptId: string;
-  deviceId: string;
-  sourceId: string;
-  sha256: string;
-  zipSha256: string;
-  objectKey: string;
-  zipBytes: number;
-  luaBytes: number;
-  edition: string;
-  appVersion: string;
-  queuedAt: string;
-  ingestKey: string;
 }
 
 export function json(body: unknown, status = 200, headers: Record<string, string> = {}): Response {

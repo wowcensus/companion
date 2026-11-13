@@ -18,6 +18,7 @@ type Receipt struct {
 	Status    string    `json:"status"`
 	ReceiptID string    `json:"receiptId,omitempty"`
 	Duplicate bool      `json:"duplicate,omitempty"`
+	CheckedAt time.Time `json:"checkedAt,omitempty"`
 	Bytes     int64     `json:"bytes"`
 	At        time.Time `json:"at"`
 }
@@ -81,6 +82,11 @@ func LoadState(appDir string) (*State, error) {
 func (s *State) SourceID(path string) string {
 	sum := sha256.Sum256([]byte(s.InstallSalt + "\x00" + pathKey(path)))
 	return hex.EncodeToString(sum[:])
+}
+
+func (s *State) ClientID() string {
+	sum := sha256.Sum256([]byte("client\x00" + s.InstallSalt))
+	return hex.EncodeToString(sum[:16])
 }
 
 func receiptKey(sourceID, sha string) string { return sourceID + ":" + sha }

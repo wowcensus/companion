@@ -4,15 +4,12 @@ A small app that sends your WoWCensus add-on data to [wowcensus.io](https://wowc
 
 You play as normal. The app runs quietly in the background and shares new data each time you log out or `/reload`.
 
-## Before you start
-
-You need the **WoWCensus add-on** installed and enabled in World of Warcraft. Get it from [wowcensus/addon](https://github.com/wowcensus/addon).
-
 ## Install
 
 1. Download the latest version from the [Releases](https://github.com/wowcensus/companion/releases) page.
 2. Run it. It finds your World of Warcraft folders on its own.
-3. Click **Turn on uploads**.
+3. If it says the add-on isn't installed, click **Install add-on**. It puts the [WoWCensus add-on](https://github.com/wowcensus/addon) in the right folder for each game version you have. Restart WoW afterwards.
+4. Click **Turn on uploads**.
 
 You don't need an account, a password or a token.
 
@@ -20,7 +17,7 @@ You don't need an account, a password or a token.
 
 - Play WoW with the add-on enabled. Whenever you log out or type `/reload`, the app notices the new data and sends it.
 - Closing the window keeps the app running in the system tray. To quit, right-click the tray icon and choose **Quit**.
-- To start it automatically, turn on **Start at login** in Settings.
+- To start it automatically, turn on **Start when I log in to my computer** in Settings.
 
 ## What gets shared
 
@@ -37,8 +34,9 @@ Uploads are off until you turn them on, and you can turn them off at any time in
 
 ## Something not working?
 
-- **"No WoWCensus.lua found yet"**: log in to a character with the add-on enabled, then `/reload` once. If WoW is installed somewhere unusual, add its folder in Settings.
+- **"No WoWCensus saves found yet"**: install the add-on, log in to a character with the add-on enabled, then `/reload` once. If WoW is installed somewhere unusual, add its folder in Settings.
 - **Uploads failing**: the app retries on its own. The **Activity** tab shows what happened.
+- **Add-on install fails**: close World of Warcraft and try again.
 
 ## Uninstall
 

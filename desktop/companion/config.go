@@ -10,13 +10,11 @@ import (
 	"strings"
 )
 
-var AppVersion = "0.1.2"
+var AppVersion = "0.1.3"
 
 const (
 	appDirName          = "WoWCensusCompanion"
-	defaultPollSeconds  = 15
-	minPollSeconds      = 5
-	maxPollSeconds      = 600
+	defaultPollSeconds  = 60
 	defaultThresholdMB  = 50
 	defaultBackupKeep   = 5
 	defaultBackupCapMB  = 500
@@ -29,8 +27,6 @@ type Config struct {
 	StartAtLogin bool `json:"startAtLogin"`
 
 	AutoUpload bool `json:"autoUpload"`
-
-	IncludeSystemInfo bool `json:"includeSystemInfo"`
 
 	AutoBackup bool `json:"autoBackup"`
 
@@ -58,10 +54,7 @@ func DefaultConfig() Config {
 }
 
 func (c *Config) Normalize() {
-	if c.PollSeconds == 0 {
-		c.PollSeconds = defaultPollSeconds
-	}
-	c.PollSeconds = min(max(c.PollSeconds, minPollSeconds), maxPollSeconds)
+	c.PollSeconds = defaultPollSeconds
 	if c.SizeThresholdMB <= 0 {
 		c.SizeThresholdMB = defaultThresholdMB
 	}

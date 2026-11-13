@@ -61,3 +61,11 @@ input:not([type=checkbox]), textarea { display: block; width: 100%; margin-top: 
 .log .warn { color: var(--warn); }
 .log .error { color: var(--err); }
 .notes li { margin: 6px 0; color: var(--muted); }
+h2 { font-size: 15px; margin: 18px 0 6px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; }
+.card h2 { margin: 0 0 4px; }
+.card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.card-head p { margin: 0; }
+.addon-list { list-style: none; padding: 0; margin: 10px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px 16px; }
+.addon-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.small { font-size: 12px; margin: 8px 0 0; }

@@ -4,6 +4,7 @@ import (
 	"embed"
 	"log"
 	"os"
+	"os/exec"
 	"sync/atomic"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -24,6 +25,16 @@ func init() {
 }
 
 func main() {
+	relaunch, installed, err := companion.InstallToUserHome(os.Args[1:])
+	if err != nil {
+		log.Fatal(err)
+	}
+	if installed {
+		if err := exec.Command(relaunch.Path, relaunch.Args...).Start(); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	startHidden := false
 	for _, a := range os.Args[1:] {
 		if a == "--minimized" {
@@ -36,6 +47,11 @@ func main() {
 		log.Fatal(err)
 	}
 	companion.CleanupOldVersion()
+	if engine.Config().StartAtLogin {
+		if err := companion.SetStartAtLogin(true); err != nil {
+			log.Printf("could not update start-at-login entry: %v", err)
+		}
+	}
 	svc := &CompanionService{engine: engine}
 
 	app := application.New(application.Options{

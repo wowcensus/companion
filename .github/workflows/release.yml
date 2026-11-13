@@ -95,6 +95,12 @@ jobs:
           Copy-Item bin/wowcensus-companion.exe "out/wowcensus-companion.exe"
           Copy-Item bin/wowcensus-companion.exe "stage/WoWCensus Companion/WoWCensus Companion.exe"
           Compress-Archive -Path "stage/WoWCensus Companion" -DestinationPath "out/WoWCensus-Companion-$env:VERSION-windows.zip"
+          choco install innosetup --no-progress -y
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup installation failed" }
+          $env:SOURCE_EXE = (Resolve-Path bin/wowcensus-companion.exe).Path
+          $env:OUTPUT_DIR = (Resolve-Path out).Path
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "$env:GITHUB_WORKSPACE/scripts/windows-installer.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Windows installer build failed" }
           Get-ChildItem out | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name } | Set-Content -Encoding ascii out/SHA256SUMS-windows.txt
 
       - name: Build macOS

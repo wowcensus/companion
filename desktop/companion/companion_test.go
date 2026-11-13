@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -613,6 +614,36 @@ func TestReplaceExecutable(t *testing.T) {
 	CleanupOldVersion()
 	if _, err := os.Stat(exe + ".old"); !os.IsNotExist(err) {
 		t.Fatal("old version not cleaned up")
+	}
+}
+
+func TestInstallToUserHome(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows per-user installer path")
+	}
+	dir := t.TempDir()
+	t.Setenv("LOCALAPPDATA", filepath.Join(dir, "Local"))
+	source := filepath.Join(dir, "download.exe")
+	if err := os.WriteFile(source, []byte("app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := executablePath
+	executablePath = func() (string, error) { return source, nil }
+	defer func() { executablePath = old }()
+	relaunch, installed, err := InstallToUserHome([]string{"--minimized"})
+	if err != nil || !installed {
+		t.Fatalf("install: relaunch=%+v installed=%v err=%v", relaunch, installed, err)
+	}
+	want, _ := UserInstallPath()
+	if relaunch.Path != want || len(relaunch.Args) != 1 || relaunch.Args[0] != "--minimized" {
+		t.Fatalf("unexpected relaunch: %+v", relaunch)
+	}
+	if b, err := os.ReadFile(want); err != nil || string(b) != "app" {
+		t.Fatalf("installed app: %q %v", b, err)
+	}
+	executablePath = func() (string, error) { return want, nil }
+	if _, installed, err := InstallToUserHome(nil); err != nil || installed {
+		t.Fatalf("installed app copied itself again: %v %v", installed, err)
 	}
 }
 

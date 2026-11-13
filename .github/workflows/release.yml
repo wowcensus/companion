@@ -1,0 +1,129 @@
+name: Release builds
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and attach files to
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+  GOTOOLCHAIN: local
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - name: Create the release if it does not exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            sed "s/VERSION/${TAG#v}/g" .github/release-notes.md > notes.md
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "WoWCensus Companion ${TAG#v}" --notes-file notes.md --verify-tag
+          fi
+
+  build:
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+          - os: macos-latest
+            platform: macos
+          - os: ubuntu-22.04
+            platform: linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.x"
+          cache: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Install Linux build dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev libfuse2 file
+
+      - name: Install Wails CLI
+        shell: bash
+        run: |
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Version
+        shell: bash
+        run: echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
+
+      - name: Generate project (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: ./scripts/bootstrap-desktop.ps1 -Target "$env:GITHUB_WORKSPACE/wowcensus-companion"
+
+      - name: Generate project (macOS, Linux)
+        if: matrix.platform != 'windows'
+        run: sh ./scripts/bootstrap-desktop.sh "$GITHUB_WORKSPACE/wowcensus-companion"
+
+      - name: Build Windows
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        working-directory: wowcensus-companion
+        run: |
+          wails3 build
+          New-Item -ItemType Directory -Force out, "stage/WoWCensus Companion" | Out-Null
+          Copy-Item bin/wowcensus-companion.exe "out/WoWCensus-Companion-$env:VERSION-windows.exe"
+          Copy-Item bin/wowcensus-companion.exe "stage/WoWCensus Companion/WoWCensus Companion.exe"
+          Compress-Archive -Path "stage/WoWCensus Companion" -DestinationPath "out/WoWCensus-Companion-$env:VERSION-windows.zip"
+          Get-ChildItem out | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name } | Set-Content -Encoding ascii out/SHA256SUMS-windows.txt
+
+      - name: Build macOS
+        if: matrix.platform == 'macos'
+        working-directory: wowcensus-companion
+        run: |
+          wails3 task darwin:package:universal
+          mkdir -p out stage
+          ditto bin/wowcensus-companion.app "stage/WoWCensus Companion.app"
+          ditto -c -k --keepParent "stage/WoWCensus Companion.app" "out/WoWCensus-Companion-$VERSION-macos.zip"
+          hdiutil create -volname "WoWCensus Companion" -srcfolder stage -ov -format UDZO "out/WoWCensus-Companion-$VERSION-macos.dmg"
+          (cd out && shasum -a 256 * > SHA256SUMS-macos.txt)
+
+      - name: Build Linux
+        if: matrix.platform == 'linux'
+        working-directory: wowcensus-companion
+        run: |
+          wails3 task linux:build
+          wails3 task linux:create:appimage || echo "AppImage step failed; publishing the plain binary only"
+          mkdir -p out stage
+          cp bin/wowcensus-companion "out/WoWCensus-Companion-$VERSION-linux-x86_64"
+          chmod +x "out/WoWCensus-Companion-$VERSION-linux-x86_64"
+          cp bin/wowcensus-companion stage/wowcensus-companion
+          tar -C stage -czf "out/WoWCensus-Companion-$VERSION-linux-x86_64.tar.gz" wowcensus-companion
+          for f in bin/*.AppImage; do [ -e "$f" ] && cp "$f" "out/WoWCensus-Companion-$VERSION-linux-x86_64.AppImage"; done
+          (cd out && sha256sum * > SHA256SUMS-linux.txt)
+
+      - name: Attach files to the release
+        shell: bash
+        working-directory: wowcensus-companion
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" out/* --clobber --repo "$GITHUB_REPOSITORY"

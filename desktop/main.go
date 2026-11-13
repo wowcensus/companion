@@ -15,6 +15,9 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+//go:embed trayicon.png
+var trayIcon []byte
+
 func init() {
 
 	application.RegisterEvent[companion.Status]("status")
@@ -83,6 +86,7 @@ func main() {
 	})
 
 	tray := app.SystemTray.New()
+	tray.SetIcon(trayIcon)
 	tray.SetTooltip("WoWCensus Companion")
 	tray.SetMenu(menu)
 	tray.OnClick(show)

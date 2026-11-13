@@ -7,7 +7,7 @@ You play as normal. The app runs quietly in the background and shares new data e
 ## Install
 
 1. Download the latest version from the [Releases](https://github.com/wowcensus/companion/releases) page.
-2. Run it. It installs a copy under your user profile and opens that copy. On Windows, use the Setup download for a Start Menu shortcut and an entry in Installed Apps. It finds your World of Warcraft folders on its own.
+2. Run it. On Windows, use the Setup download to install in `C:\WoWCensus`, with a Start Menu shortcut and an entry in Installed Apps. On macOS and Linux, the download installs under your user profile. The app then finds your World of Warcraft folders on its own.
 3. If it says the add-on isn't installed, click **Install add-on**. It puts the [WoWCensus add-on](https://github.com/wowcensus/addon) in the right folder for each game version you have. Restart WoW afterwards.
 4. Click **Turn on uploads**.
 
@@ -40,6 +40,6 @@ Uploads are off until you turn them on, and you can turn them off at any time in
 
 ## Uninstall
 
-Turn off **Start when I log in** in Settings, then quit the app from the tray. On Windows, uninstall **WoWCensus Companion** in Installed Apps. On macOS, delete `~/Applications/WoWCensus Companion.app`. On Linux, delete `~/.local/opt/wowcensus-companion/` and `~/.local/share/applications/wowcensus-companion.desktop`. If you used the Windows portable `.exe` instead of Setup, delete `%LocalAppData%\Programs\WoWCensus Companion`.
+Turn off **Start when I log in** in Settings, then quit the app from the tray. On Windows, uninstall **WoWCensus Companion** in Installed Apps. On macOS, delete `~/Applications/WoWCensus Companion.app`. On Linux, delete `~/.local/opt/wowcensus-companion/` and `~/.local/share/applications/wowcensus-companion.desktop`. If you used the Windows portable `.exe` instead of Setup, delete `C:\WoWCensus` (or the earlier `%LocalAppData%\Programs\WoWCensus Companion` location).
 
 Settings and upload receipts are kept separately. To remove those too, delete the `WoWCensusCompanion` folder in `%AppData%` on Windows, `~/Library/Application Support` on macOS, or `~/.config` on Linux. The WoWCensus game add-on is separate and remains installed.

@@ -623,6 +623,13 @@ func TestInstallToUserHome(t *testing.T) {
 	}
 	dir := t.TempDir()
 	t.Setenv("LOCALAPPDATA", filepath.Join(dir, "Local"))
+	if want, _ := UserInstallPath(); want != `C:\WoWCensus\wowcensus-companion.exe` {
+		t.Fatalf("Windows install path is %q", want)
+	}
+	want := filepath.Join(dir, "installed", "wowcensus-companion.exe")
+	oldInstallPath := installPath
+	installPath = func() (string, error) { return want, nil }
+	defer func() { installPath = oldInstallPath }()
 	source := filepath.Join(dir, "download.exe")
 	if err := os.WriteFile(source, []byte("app"), 0o755); err != nil {
 		t.Fatal(err)
@@ -634,7 +641,6 @@ func TestInstallToUserHome(t *testing.T) {
 	if err != nil || !installed {
 		t.Fatalf("install: relaunch=%+v installed=%v err=%v", relaunch, installed, err)
 	}
-	want, _ := UserInstallPath()
 	if relaunch.Path != want || len(relaunch.Args) != 1 || relaunch.Args[0] != "--minimized" {
 		t.Fatalf("unexpected relaunch: %+v", relaunch)
 	}
@@ -644,6 +650,11 @@ func TestInstallToUserHome(t *testing.T) {
 	executablePath = func() (string, error) { return want, nil }
 	if _, installed, err := InstallToUserHome(nil); err != nil || installed {
 		t.Fatalf("installed app copied itself again: %v %v", installed, err)
+	}
+	legacy, _ := legacyWindowsInstallPath()
+	executablePath = func() (string, error) { return legacy, nil }
+	if _, installed, err := InstallToUserHome(nil); err != nil || installed {
+		t.Fatalf("legacy installation moved unexpectedly: %v %v", installed, err)
 	}
 }
 

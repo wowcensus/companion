@@ -10,29 +10,43 @@ import (
 	"strings"
 )
 
+var installPath = UserInstallPath
+
 // UserInstallPath is kept separate from the settings directory so uninstalling
 // the program does not discard upload receipts or the device registration.
 func UserInstallPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
 	switch runtime.GOOS {
 	case "windows":
-		base := os.Getenv("LOCALAPPDATA")
-		if base == "" {
-			base = filepath.Join(home, "AppData", "Local")
-		}
-		return filepath.Join(base, "Programs", "WoWCensus Companion", "wowcensus-companion.exe"), nil
+		return `C:\WoWCensus\wowcensus-companion.exe`, nil
 	case "darwin":
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
 		return filepath.Join(home, "Applications", "WoWCensus Companion.app"), nil
 	default:
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
 		name := "wowcensus-companion"
 		if os.Getenv("APPIMAGE") != "" {
 			name += ".AppImage"
 		}
 		return filepath.Join(home, ".local", "opt", "wowcensus-companion", name), nil
 	}
+}
+
+func legacyWindowsInstallPath() (string, error) {
+	base := os.Getenv("LOCALAPPDATA")
+	if base == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		base = filepath.Join(home, "AppData", "Local")
+	}
+	return filepath.Join(base, "Programs", "WoWCensus Companion", "wowcensus-companion.exe"), nil
 }
 
 func sameInstallPath(a, b string) bool {
@@ -87,7 +101,7 @@ func InstallToUserHome(args []string) (Relaunch, bool, error) {
 	if err != nil {
 		return Relaunch{}, false, err
 	}
-	target, err := UserInstallPath()
+	target, err := installPath()
 	if err != nil {
 		return Relaunch{}, false, err
 	}
@@ -117,6 +131,15 @@ func InstallToUserHome(args []string) (Relaunch, bool, error) {
 		return Relaunch{Path: "open", Args: launchArgs}, true, nil
 	}
 	source := exe
+	if runtime.GOOS == "windows" {
+		legacy, err := legacyWindowsInstallPath()
+		if err != nil {
+			return Relaunch{}, false, err
+		}
+		if sameInstallPath(source, legacy) {
+			return Relaunch{}, false, nil
+		}
+	}
 	if runtime.GOOS == "linux" && os.Getenv("APPIMAGE") != "" {
 		source = os.Getenv("APPIMAGE")
 	}

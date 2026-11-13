@@ -80,6 +80,7 @@ type Engine struct {
 	httpClient       *http.Client
 
 	update        UpdateInfo
+	updateData    []byte
 	onUpdateFound func(version string)
 
 	addonLatest   AddonRelease
@@ -626,13 +627,29 @@ func (e *Engine) maybeCheckUpdate(ctx context.Context) {
 
 func (e *Engine) CheckForUpdate(ctx context.Context) UpdateStatus {
 	info, err := FetchLatestCompanion(ctx, e.httpClient)
+	if err != nil {
+		return e.Status().Update
+	}
 	_, seen := e.state.UpdateMarks()
 	e.mu.Lock()
-	st := UpdateStatus{Current: AppVersion, Installing: e.status.Update.Installing}
+	previous := e.status.Update
+	st := UpdateStatus{Current: AppVersion, Installing: previous.Installing}
 	newVersion := ""
-	if err == nil && NewerVersion(info.Version, AppVersion) {
+	prepare := false
+	if NewerVersion(info.Version, AppVersion) {
 		e.update = info
 		st.Available, st.Version = true, info.Version
+		if previous.Version == info.Version {
+			st.Ready = previous.Ready
+			st.Downloading = previous.Downloading
+			st.Error = previous.Error
+		} else {
+			e.updateData = nil
+		}
+		prepare = !st.Ready && !st.Downloading && !st.Installing && st.Error == ""
+		if prepare {
+			st.Downloading = true
+		}
 		if info.Version != seen {
 			newVersion = info.Version
 		}
@@ -649,12 +666,56 @@ func (e *Engine) CheckForUpdate(ctx context.Context) UpdateStatus {
 	}
 	_ = e.state.SetUpdateMarks(e.now(), seen)
 	e.notify()
+	if prepare {
+		go e.downloadUpdate(ctx, info)
+	}
 	return st
+}
+
+func (e *Engine) PrepareUpdate(ctx context.Context) error {
+	e.mu.Lock()
+	info := e.update
+	if !e.status.Update.Available || info.URL == "" {
+		e.mu.Unlock()
+		return errors.New("no update is available")
+	}
+	if e.status.Update.Ready || e.status.Update.Downloading || e.status.Update.Installing {
+		e.mu.Unlock()
+		return nil
+	}
+	e.status.Update.Downloading, e.status.Update.Error = true, ""
+	e.mu.Unlock()
+	e.notify()
+	return e.downloadUpdate(ctx, info)
+}
+
+func (e *Engine) downloadUpdate(ctx context.Context, info UpdateInfo) error {
+	e.logf("info", "Downloading WoWCensus Companion %s…", info.Version)
+	data, err := DownloadUpdate(ctx, e.httpClient, info)
+	e.mu.Lock()
+	if e.update.Version == info.Version {
+		e.status.Update.Downloading = false
+		if err == nil {
+			e.updateData = data
+			e.status.Update.Ready = true
+		} else {
+			e.status.Update.Error = err.Error()
+		}
+	}
+	e.mu.Unlock()
+	if err != nil {
+		e.logf("error", "Update download failed: %v", err)
+	} else {
+		e.logf("info", "WoWCensus Companion %s is ready to install.", info.Version)
+	}
+	e.notify()
+	return err
 }
 
 func (e *Engine) InstallUpdate(ctx context.Context) (Relaunch, error) {
 	e.mu.Lock()
 	info := e.update
+	data := e.updateData
 	if e.status.Update.Installing {
 		e.mu.Unlock()
 		return Relaunch{}, errors.New("an update is already being installed")
@@ -669,20 +730,8 @@ func (e *Engine) InstallUpdate(ctx context.Context) (Relaunch, error) {
 		e.logf("error", "Update failed: %v", err)
 		return Relaunch{}, err
 	}
-	if info.URL == "" {
-		fresh, err := FetchLatestCompanion(ctx, e.httpClient)
-		if err != nil {
-			return fail(err)
-		}
-		info = fresh
-	}
-	if !NewerVersion(info.Version, AppVersion) {
-		return fail(errors.New("you already have the latest version"))
-	}
-	e.logf("info", "Downloading WoWCensus Companion %s…", info.Version)
-	data, err := DownloadUpdate(ctx, e.httpClient, info)
-	if err != nil {
-		return fail(err)
+	if !NewerVersion(info.Version, AppVersion) || len(data) == 0 {
+		return fail(errors.New("the update is not ready yet"))
 	}
 	rl, err := ApplyUpdate(data)
 	if err != nil {

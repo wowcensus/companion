@@ -44,11 +44,13 @@ type UpdateInfo struct {
 }
 
 type UpdateStatus struct {
-	Available  bool   `json:"available"`
-	Version    string `json:"version"`
-	Current    string `json:"current"`
-	Installing bool   `json:"installing"`
-	Error      string `json:"error,omitempty"`
+	Available   bool   `json:"available"`
+	Version     string `json:"version"`
+	Current     string `json:"current"`
+	Downloading bool   `json:"downloading"`
+	Ready       bool   `json:"ready"`
+	Installing  bool   `json:"installing"`
+	Error       string `json:"error,omitempty"`
 }
 
 type Relaunch struct {
@@ -137,6 +139,8 @@ func FetchLatestCompanion(ctx context.Context, client *http.Client) (UpdateInfo,
 	for _, a := range rel.Assets {
 		switch {
 		case strings.HasPrefix(a.Name, "WoWCensus-Companion-") && strings.HasSuffix(a.Name, suffix):
+			info.Asset, info.URL, info.Size = a.Name, a.URL, a.Size
+		case runtime.GOOS == "windows" && a.Name == "wowcensus-companion.exe" && info.URL == "":
 			info.Asset, info.URL, info.Size = a.Name, a.URL, a.Size
 		case a.Name == sums:
 			info.SumsURL = a.URL

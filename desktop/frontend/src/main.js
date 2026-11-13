@@ -67,24 +67,39 @@ function renderAddon(a) {
 }
 
 let updating = false;
+let updateReady = false;
 
 function renderUpdate(u) {
   const banner = $("#update-banner");
+  updateReady = !!u?.ready;
   if (!u?.available) {
     banner.hidden = true;
     return;
   }
   banner.hidden = false;
   if (updating || u.installing) {
-    $("#update-text").textContent = `Downloading version ${u.version}… the app will restart by itself.`;
+    $("#update-text").textContent = `Installing version ${u.version}… the app will restart by itself.`;
     $("#btn-update").disabled = true;
     return;
   }
+  if (u.downloading) {
+    $("#update-text").textContent = `Downloading and verifying version ${u.version}…`;
+    $("#btn-update").disabled = true;
+    return;
+  }
+  if (u.ready) {
+    $("#update-text").textContent = u.error
+      ? `Version ${u.version} is ready, but the last restart failed: ${u.error}`
+      : `Version ${u.version} is ready. Restart to update.`;
+    $("#btn-update").disabled = false;
+    $("#btn-update").textContent = "Restart to update";
+    return;
+  }
   $("#update-text").textContent = u.error
-    ? `Version ${u.version} is available, but the last try failed: ${u.error}`
-    : `Version ${u.version} is available (you have ${u.current}). It takes a few seconds and the app restarts by itself.`;
+    ? `Version ${u.version} is available, but the download failed: ${u.error}`
+    : `Version ${u.version} is available (you have ${u.current}).`;
   $("#btn-update").disabled = false;
-  $("#btn-update").textContent = u.error ? "Try again" : "Update now";
+  $("#btn-update").textContent = "Retry download";
 }
 
 function renderStatus(s) {
@@ -134,9 +149,18 @@ $("#btn-addon").onclick = async () => {
 };
 
 $("#btn-update").onclick = async () => {
+  if (!updateReady) {
+    $("#btn-update").disabled = true;
+    try {
+      await CompanionService.PrepareUpdate();
+    } catch (err) {
+      CompanionService.GetStatus().then(renderStatus);
+    }
+    return;
+  }
   updating = true;
   $("#btn-update").disabled = true;
-  $("#update-text").textContent = "Downloading the update… the app will restart by itself.";
+  $("#update-text").textContent = "Installing the update… the app will restart by itself.";
   try {
     await CompanionService.InstallUpdate();
   } catch (err) {

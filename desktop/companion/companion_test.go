@@ -565,6 +565,35 @@ func TestUpdateDownloadVerifiesChecksum(t *testing.T) {
 	}
 }
 
+func TestEnginePreparesUpdateBeforeRestart(t *testing.T) {
+	srv := fakeRelease(t, "9.9.9", []byte("new app binary"), "")
+	defer srv.Close()
+	old := CompanionReleaseAPI
+	CompanionReleaseAPI = srv.URL + "/latest"
+	defer func() { CompanionReleaseAPI = old }()
+	e, err := NewEngine(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.httpClient = srv.Client()
+	e.CheckForUpdate(context.Background())
+	deadline := time.Now().Add(5 * time.Second)
+	for !e.Status().Update.Ready && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	st := e.Status().Update
+	if !st.Available || !st.Ready || st.Downloading || st.Error != "" {
+		t.Fatalf("update not ready for restart: %+v", st)
+	}
+	e.CheckForUpdate(context.Background())
+	if !e.Status().Update.Ready {
+		t.Fatal("checking again lost the prepared update")
+	}
+	if err := e.PrepareUpdate(context.Background()); err != nil {
+		t.Fatalf("preparing an already ready update: %v", err)
+	}
+}
+
 func TestReplaceExecutable(t *testing.T) {
 	dir := t.TempDir()
 	exe := filepath.Join(dir, "WoWCensus Companion.exe")

@@ -84,6 +84,10 @@ func (s *CompanionService) InstallUpdate() error {
 	return nil
 }
 
+func (s *CompanionService) PrepareUpdate() error {
+	return s.engine.PrepareUpdate(s.ctx)
+}
+
 func (s *CompanionService) CheckForUpdate() companion.UpdateStatus {
 	return s.engine.CheckForUpdate(s.ctx)
 }

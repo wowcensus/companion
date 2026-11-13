@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"os/exec"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
@@ -10,6 +12,7 @@ import (
 
 type CompanionService struct {
 	engine *companion.Engine
+	quit   func()
 	ctx    context.Context
 	cancel context.CancelFunc
 }
@@ -65,6 +68,24 @@ func (s *CompanionService) GetStatus() companion.Status { return s.engine.Status
 
 func (s *CompanionService) DetectInstalls(extraRoots []string) []companion.SavedVarFile {
 	return companion.DiscoverWithDefaults(extraRoots)
+}
+
+func (s *CompanionService) InstallUpdate() error {
+	rl, err := s.engine.InstallUpdate(s.ctx)
+	if err != nil {
+		return err
+	}
+	if err := exec.Command(rl.Path, rl.Args...).Start(); err != nil {
+		return fmt.Errorf("the update is installed; please reopen the app (%v)", err)
+	}
+	if s.quit != nil {
+		go s.quit()
+	}
+	return nil
+}
+
+func (s *CompanionService) CheckForUpdate() companion.UpdateStatus {
+	return s.engine.CheckForUpdate(s.ctx)
 }
 
 func (s *CompanionService) InstallAddon() (string, error) {

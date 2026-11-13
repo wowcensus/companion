@@ -66,6 +66,27 @@ function renderAddon(a) {
   if (a?.error && !latest && !$("#addon-msg").textContent) $("#addon-msg").textContent = a.error;
 }
 
+let updating = false;
+
+function renderUpdate(u) {
+  const banner = $("#update-banner");
+  if (!u?.available) {
+    banner.hidden = true;
+    return;
+  }
+  banner.hidden = false;
+  if (updating || u.installing) {
+    $("#update-text").textContent = `Downloading version ${u.version}… the app will restart by itself.`;
+    $("#btn-update").disabled = true;
+    return;
+  }
+  $("#update-text").textContent = u.error
+    ? `Version ${u.version} is available, but the last try failed: ${u.error}`
+    : `Version ${u.version} is available (you have ${u.current}). It takes a few seconds and the app restarts by itself.`;
+  $("#btn-update").disabled = false;
+  $("#btn-update").textContent = u.error ? "Try again" : "Update now";
+}
+
 function renderStatus(s) {
   const files = s.files || [];
   const busy = s.busy === "Uploading" ? " · uploading…" : "";
@@ -86,6 +107,7 @@ function renderStatus(s) {
       <td>${esc(editionName(f.edition))}</td><td>${esc(f.account)}</td>
       <td>${mb(f.bytes)}</td><td>${when(f.modTime)}</td><td>${uploadCell(f, s.autoUpload)}</td></tr>`).join("");
   renderAddon(s.addon);
+  renderUpdate(s.update);
   const log = s.log || [];
   $("#log").innerHTML = log.slice().reverse().map((l) =>
     `<li class="${esc(l.level)}"><time>${when(l.at)}</time> ${esc(l.message)}</li>`).join("");
@@ -107,6 +129,18 @@ $("#btn-addon").onclick = async () => {
   } finally {
     installing = false;
     btn.disabled = false;
+    CompanionService.GetStatus().then(renderStatus);
+  }
+};
+
+$("#btn-update").onclick = async () => {
+  updating = true;
+  $("#btn-update").disabled = true;
+  $("#update-text").textContent = "Downloading the update… the app will restart by itself.";
+  try {
+    await CompanionService.InstallUpdate();
+  } catch (err) {
+    updating = false;
     CompanionService.GetStatus().then(renderStatus);
   }
 };

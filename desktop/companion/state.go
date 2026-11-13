@@ -34,6 +34,8 @@ type State struct {
 	path string
 
 	InstallSalt string              `json:"installSalt"`
+	UpdateCheck time.Time           `json:"updateCheck"`
+	UpdateSeen  string              `json:"updateSeen"`
 	Receipts    map[string]Receipt  `json:"receipts"`
 	Seen        map[string]seenFile `json:"seen"`
 	Failures    map[string]Failure  `json:"failures"`
@@ -87,6 +89,19 @@ func (s *State) SourceID(path string) string {
 func (s *State) ClientID() string {
 	sum := sha256.Sum256([]byte("client\x00" + s.InstallSalt))
 	return hex.EncodeToString(sum[:16])
+}
+
+func (s *State) UpdateMarks() (time.Time, string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.UpdateCheck, s.UpdateSeen
+}
+
+func (s *State) SetUpdateMarks(checked time.Time, seen string) error {
+	s.mu.Lock()
+	s.UpdateCheck, s.UpdateSeen = checked, seen
+	s.mu.Unlock()
+	return s.Save()
 }
 
 func receiptKey(sourceID, sha string) string { return sourceID + ":" + sha }

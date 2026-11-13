@@ -69,3 +69,4 @@ h2 { font-size: 15px; margin: 18px 0 6px; }
 .addon-list { list-style: none; padding: 0; margin: 10px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px 16px; }
 .addon-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .small { font-size: 12px; margin: 8px 0 0; }
+.banner.update { background: #14263a; border-color: #2c5a8a; }

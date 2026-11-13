@@ -35,6 +35,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	companion.CleanupOldVersion()
 	svc := &CompanionService{engine: engine}
 
 	app := application.New(application.Options{
@@ -74,12 +75,24 @@ func main() {
 		win.Restore()
 		win.Focus()
 	}
-	menu := application.NewMenu()
-	menu.Add("Open WoWCensus Companion").OnClick(func(*application.Context) { show() })
-	menu.AddSeparator()
-	menu.Add("Quit").OnClick(func(*application.Context) {
+	quit := func() {
 		quitting.Store(true)
 		app.Quit()
+	}
+	svc.quit = quit
+	menu := application.NewMenu()
+	menu.Add("Open WoWCensus Companion").OnClick(func(*application.Context) { show() })
+	updateItem := menu.Add("Update available").OnClick(func(*application.Context) { show() })
+	updateItem.SetHidden(true)
+	menu.AddSeparator()
+	menu.Add("Quit").OnClick(func(*application.Context) { quit() })
+	engine.OnUpdateFound(func(version string) {
+		application.InvokeSync(func() {
+			updateItem.SetLabel("Update to version " + version)
+			updateItem.SetHidden(false)
+			menu.Update()
+			show()
+		})
 	})
 
 	tray := app.SystemTray.New()

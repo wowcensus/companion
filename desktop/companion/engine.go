@@ -37,6 +37,7 @@ type Status struct {
 	AutoUpload bool         `json:"autoUpload"`
 	Files      []FileStatus `json:"files"`
 	Addon      AddonStatus  `json:"addon"`
+	Update     UpdateStatus `json:"update"`
 	Log        []LogEntry   `json:"log"`
 }
 
@@ -78,6 +79,9 @@ type Engine struct {
 	discoverEditions func(roots []string) []string
 	httpClient       *http.Client
 
+	update        UpdateInfo
+	onUpdateFound func(version string)
+
 	addonLatest   AddonRelease
 	addonLatestAt time.Time
 	addonErr      string
@@ -109,6 +113,7 @@ func NewEngine(appDir string) (*Engine, error) {
 	}
 	e.status.Files = []FileStatus{}
 	e.status.Addon.Installs = []AddonInstall{}
+	e.status.Update.Current = AppVersion
 	e.status.Log = []LogEntry{}
 	if cfgErr != nil {
 		e.logf("error", "%v (defaults loaded)", cfgErr)
@@ -223,6 +228,7 @@ func (e *Engine) Run(ctx context.Context) {
 	e.setRunning(true)
 	defer e.setRunning(false)
 	e.logf("info", "Watcher started (polling every %ds)", e.Config().PollSeconds)
+	e.maybeCheckUpdate(ctx)
 	e.reconcile(ctx, actScan)
 	for {
 		interval := time.Duration(e.Config().PollSeconds) * time.Second
@@ -235,6 +241,7 @@ func (e *Engine) Run(ctx context.Context) {
 			timer.Stop()
 			e.reconcile(ctx, a)
 		case <-timer.C:
+			e.maybeCheckUpdate(ctx)
 			e.reconcile(ctx, actScan)
 		}
 	}
@@ -600,4 +607,86 @@ func editionLabel(key string) string {
 		return "Beta"
 	}
 	return strings.ReplaceAll(key, "_", " ")
+}
+
+func (e *Engine) OnUpdateFound(fn func(version string)) {
+	e.mu.Lock()
+	e.onUpdateFound = fn
+	e.mu.Unlock()
+}
+
+func (e *Engine) maybeCheckUpdate(ctx context.Context) {
+	checked, _ := e.state.UpdateMarks()
+	if e.now().Sub(checked) < updateCheckEvery {
+		return
+	}
+	e.CheckForUpdate(ctx)
+}
+
+func (e *Engine) CheckForUpdate(ctx context.Context) UpdateStatus {
+	info, err := FetchLatestCompanion(ctx, e.httpClient)
+	_, seen := e.state.UpdateMarks()
+	e.mu.Lock()
+	st := UpdateStatus{Current: AppVersion, Installing: e.status.Update.Installing}
+	newVersion := ""
+	if err == nil && NewerVersion(info.Version, AppVersion) {
+		e.update = info
+		st.Available, st.Version = true, info.Version
+		if info.Version != seen {
+			newVersion = info.Version
+		}
+	}
+	e.status.Update = st
+	fn := e.onUpdateFound
+	e.mu.Unlock()
+	if newVersion != "" {
+		seen = newVersion
+		e.logf("info", "WoWCensus Companion %s is available.", newVersion)
+		if fn != nil {
+			fn(newVersion)
+		}
+	}
+	_ = e.state.SetUpdateMarks(e.now(), seen)
+	e.notify()
+	return st
+}
+
+func (e *Engine) InstallUpdate(ctx context.Context) (Relaunch, error) {
+	e.mu.Lock()
+	info := e.update
+	if e.status.Update.Installing {
+		e.mu.Unlock()
+		return Relaunch{}, errors.New("an update is already being installed")
+	}
+	e.status.Update.Installing, e.status.Update.Error = true, ""
+	e.mu.Unlock()
+	e.notify()
+	fail := func(err error) (Relaunch, error) {
+		e.mu.Lock()
+		e.status.Update.Installing, e.status.Update.Error = false, err.Error()
+		e.mu.Unlock()
+		e.logf("error", "Update failed: %v", err)
+		return Relaunch{}, err
+	}
+	if info.URL == "" {
+		fresh, err := FetchLatestCompanion(ctx, e.httpClient)
+		if err != nil {
+			return fail(err)
+		}
+		info = fresh
+	}
+	if !NewerVersion(info.Version, AppVersion) {
+		return fail(errors.New("you already have the latest version"))
+	}
+	e.logf("info", "Downloading WoWCensus Companion %s…", info.Version)
+	data, err := DownloadUpdate(ctx, e.httpClient, info)
+	if err != nil {
+		return fail(err)
+	}
+	rl, err := ApplyUpdate(data)
+	if err != nil {
+		return fail(err)
+	}
+	e.logf("info", "Updated to %s. Restarting…", info.Version)
+	return rl, nil
 }

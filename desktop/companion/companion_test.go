@@ -488,3 +488,134 @@ func TestClientIDIsStableAndSent(t *testing.T) {
 		t.Fatalf("client id header %q err %v", got, err)
 	}
 }
+
+func TestNewerVersion(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		want bool
+	}{{"0.1.4", "0.1.3", true}, {"v0.2.0", "0.1.9", true}, {"0.1.3", "0.1.3", false}, {"0.1.2", "0.1.3", false}, {"0.1.10", "0.1.9", true}, {"1.0", "0.9.9", true}, {"junk", "0.1.0", false}} {
+		if got := NewerVersion(c.a, c.b); got != c.want {
+			t.Errorf("NewerVersion(%q, %q) = %v", c.a, c.b, got)
+		}
+	}
+}
+
+func fakeRelease(t *testing.T, version string, payload []byte, sums string) *httptest.Server {
+	t.Helper()
+	suffix, sumsName := platformAsset()
+	asset := "WoWCensus-Companion-" + version + suffix
+	if sums == "" {
+		h := sha256.Sum256(payload)
+		sums = hex.EncodeToString(h[:]) + "  " + asset + "\n"
+	}
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/bin":
+			_, _ = w.Write(payload)
+		case "/sums":
+			_, _ = w.Write([]byte(sums))
+		default:
+			_ = json.NewEncoder(w).Encode(map[string]any{"tag_name": "v" + version, "assets": []map[string]any{
+				{"name": asset, "browser_download_url": srv.URL + "/bin", "size": len(payload)},
+				{"name": sumsName, "browser_download_url": srv.URL + "/sums", "size": len(sums)},
+			}})
+		}
+	}))
+	return srv
+}
+
+func TestUpdateDownloadVerifiesChecksum(t *testing.T) {
+	payload := []byte("new app binary")
+	srv := fakeRelease(t, "9.9.9", payload, "")
+	defer srv.Close()
+	old := CompanionReleaseAPI
+	CompanionReleaseAPI = srv.URL + "/latest"
+	defer func() { CompanionReleaseAPI = old }()
+	info, err := FetchLatestCompanion(context.Background(), srv.Client())
+	if err != nil || info.Version != "9.9.9" {
+		t.Fatalf("info %+v err %v", info, err)
+	}
+	data, err := DownloadUpdate(context.Background(), srv.Client(), info)
+	if err != nil || !bytes.Equal(data, payload) {
+		t.Fatalf("download err %v", err)
+	}
+	bad := fakeRelease(t, "9.9.9", payload, strings.Repeat("0", 64)+"  "+info.Asset+"\n")
+	defer bad.Close()
+	CompanionReleaseAPI = bad.URL + "/latest"
+	info, _ = FetchLatestCompanion(context.Background(), bad.Client())
+	if _, err := DownloadUpdate(context.Background(), bad.Client(), info); err == nil {
+		t.Fatal("accepted an update with a wrong checksum")
+	}
+}
+
+func TestReplaceExecutable(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "WoWCensus Companion.exe")
+	_ = os.WriteFile(exe, []byte("v1"), 0o755)
+	if err := ReplaceExecutable(exe, []byte("v2")); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(exe); string(b) != "v2" {
+		t.Fatalf("exe holds %q", b)
+	}
+	if b, _ := os.ReadFile(exe + ".old"); string(b) != "v1" {
+		t.Fatal("old version not kept for cleanup")
+	}
+	old := executablePath
+	executablePath = func() (string, error) { return exe, nil }
+	defer func() { executablePath = old }()
+	CleanupOldVersion()
+	if _, err := os.Stat(exe + ".old"); !os.IsNotExist(err) {
+		t.Fatal("old version not cleaned up")
+	}
+}
+
+func TestReplaceAppBundle(t *testing.T) {
+	dir := t.TempDir()
+	bundle := filepath.Join(dir, "WoWCensus Companion.app")
+	_ = os.MkdirAll(filepath.Join(bundle, "Contents", "MacOS"), 0o755)
+	_ = os.WriteFile(filepath.Join(bundle, "Contents", "MacOS", "wowcensus-companion"), []byte("v1"), 0o755)
+	z := addonZip(t, map[string]string{
+		"WoWCensus Companion.app/Contents/MacOS/wowcensus-companion": "v2",
+		"WoWCensus Companion.app/Contents/Info.plist":                "<plist/>",
+	})
+	if err := ReplaceAppBundle(bundle, z); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(bundle, "Contents", "MacOS", "wowcensus-companion")); string(b) != "v2" {
+		t.Fatalf("bundle holds %q", b)
+	}
+	if appBundle(filepath.Join(bundle, "Contents", "MacOS", "wowcensus-companion")) != bundle {
+		t.Fatal("bundle path not recognised")
+	}
+	evil := addonZip(t, map[string]string{"../evil": "x"})
+	if err := ReplaceAppBundle(bundle, evil); err == nil {
+		t.Fatal("accepted an update that writes outside the app")
+	}
+}
+
+func TestEngineUpdateCheckNotifiesOncePerVersion(t *testing.T) {
+	srv := fakeRelease(t, "9.9.9", []byte("x"), "")
+	defer srv.Close()
+	old := CompanionReleaseAPI
+	CompanionReleaseAPI = srv.URL + "/latest"
+	defer func() { CompanionReleaseAPI = old }()
+	dir := t.TempDir()
+	e, _ := NewEngine(dir)
+	e.httpClient = srv.Client()
+	var found []string
+	e.OnUpdateFound(func(v string) { found = append(found, v) })
+	e.maybeCheckUpdate(context.Background())
+	e.maybeCheckUpdate(context.Background())
+	if st := e.Status().Update; !st.Available || st.Version != "9.9.9" {
+		t.Fatalf("update status %+v", st)
+	}
+	e2, _ := NewEngine(dir)
+	e2.httpClient = srv.Client()
+	e2.OnUpdateFound(func(v string) { found = append(found, v) })
+	e2.CheckForUpdate(context.Background())
+	if len(found) != 1 {
+		t.Fatalf("prompted %d times, want once per version", len(found))
+	}
+}

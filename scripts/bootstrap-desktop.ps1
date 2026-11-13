@@ -13,7 +13,7 @@ $parent = Split-Path $Target -Parent
 $name = Split-Path $Target -Leaf
 Push-Location $parent
 try {
-    wails3 init -n $name -t vanilla-js -mod wowcensuscompanion -d $parent -productname "WoWCensus Companion" -productcompany wowcensus -productidentifier io.wowcensus.companion -productversion 0.1.3 -productdescription "Shares WoWCensus add-on data with wowcensus.io" -productcopyright wowcensus
+    wails3 init -n $name -t vanilla-js -mod wowcensuscompanion -d $parent -productname "WoWCensus Companion" -productcompany wowcensus -productidentifier io.wowcensus.companion -productversion 0.1.4 -productdescription "Shares WoWCensus add-on data with wowcensus.io" -productcopyright wowcensus
     if ($LASTEXITCODE -ne 0) { throw "wails3 init failed" }
 } finally { Pop-Location }
 

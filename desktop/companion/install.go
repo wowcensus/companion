@@ -6,11 +6,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 )
 
 var installPath = UserInstallPath
+var bundleVersionPattern = regexp.MustCompile(`<key>CFBundleShortVersionString</key>\s*<string>([^<]+)</string>`)
 
 // UserInstallPath is kept separate from the settings directory so uninstalling
 // the program does not discard upload receipts or the device registration.
@@ -56,6 +58,51 @@ func sameInstallPath(a, b string) bool {
 		return strings.EqualFold(a, b)
 	}
 	return a == b
+}
+
+func isMacTranslocation(path string) bool {
+	return strings.Contains(filepath.ToSlash(path), "/AppTranslocation/")
+}
+
+func macBundleVersion(bundle string) string {
+	data, err := os.ReadFile(filepath.Join(bundle, "Contents", "Info.plist"))
+	if err != nil {
+		return ""
+	}
+	match := bundleVersionPattern.FindSubmatch(data)
+	if len(match) != 2 {
+		return ""
+	}
+	return string(match[1])
+}
+
+func installMacBundle(source, target string) error {
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
+	stage, err := os.MkdirTemp(filepath.Dir(target), ".wowcensus-install-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(stage)
+	copy := filepath.Join(stage, filepath.Base(target))
+	if out, err := exec.Command("ditto", source, copy).CombinedOutput(); err != nil {
+		return fmt.Errorf("copying Mac app: %v: %s", err, out)
+	}
+	old := target + ".old"
+	if _, err := os.Stat(target); err == nil {
+		_ = os.RemoveAll(old)
+		if err := os.Rename(target, old); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.Rename(copy, target); err != nil {
+		_ = os.Rename(old, target)
+		return err
+	}
+	return nil
 }
 
 func copyInstallFile(src, dst string) error {
@@ -113,15 +160,15 @@ func InstallToUserHome(args []string) (Relaunch, bool, error) {
 		if sameInstallPath(bundle, target) {
 			return Relaunch{}, false, nil
 		}
-		if _, err := os.Stat(target); os.IsNotExist(err) {
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		installedVersion := macBundleVersion(target)
+		if installedVersion == "" || NewerVersion(AppVersion, installedVersion) {
+			if err := installMacBundle(bundle, target); err != nil {
 				return Relaunch{}, false, err
 			}
-			if out, err := exec.Command("ditto", bundle, target).CombinedOutput(); err != nil {
-				return Relaunch{}, false, fmt.Errorf("copying Mac app: %v: %s", err, out)
-			}
-		} else if err != nil {
-			return Relaunch{}, false, err
+		} else if isMacTranslocation(bundle) {
+			// Finder may report a translocated path for the installed bundle.
+			// Opening the same bundle again would create a launch loop.
+			return Relaunch{}, false, nil
 		}
 		launchArgs := []string{"-n", target}
 		if len(args) > 0 {

@@ -658,6 +658,23 @@ func TestInstallToUserHome(t *testing.T) {
 	}
 }
 
+func TestMacInstallPathDetection(t *testing.T) {
+	bundle := filepath.Join(t.TempDir(), "WoWCensus Companion.app")
+	info := filepath.Join(bundle, "Contents", "Info.plist")
+	if err := os.MkdirAll(filepath.Dir(info), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(info, []byte("<key>CFBundleShortVersionString</key>\n<string>0.1.8</string>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := macBundleVersion(bundle); got != "0.1.8" {
+		t.Fatalf("bundle version is %q", got)
+	}
+	if !isMacTranslocation("/private/var/folders/abc/AppTranslocation/123/d/WoWCensus Companion.app") {
+		t.Fatal("Mac App Translocation path not recognised")
+	}
+}
+
 func TestReplaceAppBundle(t *testing.T) {
 	dir := t.TempDir()
 	bundle := filepath.Join(dir, "WoWCensus Companion.app")

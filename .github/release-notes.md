@@ -10,4 +10,6 @@ Download the installer for your computer, run it, and click **Turn on uploads**.
 
 **Mac:** open the `.dmg` and launch **WoWCensus Companion**. It copies itself to `~/Applications` and opens the installed copy. The first time you open it, macOS may say it can't check the app. Go to **System Settings → Privacy & Security** and click **Open Anyway**.
 
+If version 0.1.8 was repeatedly opening or showed blank icons on Mac, quit it before opening this version from the `.dmg`. This version replaces the older copy in `~/Applications`.
+
 **Linux:** make the AppImage executable (`chmod +x`) and run it. It copies itself to `~/.local/opt/wowcensus-companion` and adds an application-menu entry.

@@ -35,6 +35,12 @@ func SetStartAtLogin(enable bool) error {
 	if err != nil {
 		return err
 	}
+	if target, err := UserInstallPath(); err == nil {
+		installedExe := filepath.Join(target, "Contents", "MacOS", filepath.Base(exe))
+		if _, err := os.Stat(installedExe); err == nil {
+			exe = installedExe
+		}
+	}
 	var esc strings.Builder
 	_ = xml.EscapeText(&esc, []byte(exe))
 	plist := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>

@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-var AppVersion = "0.1.8"
+var AppVersion = "0.1.9"
 
 const (
 	appDirName          = "WoWCensusCompanion"

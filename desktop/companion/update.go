@@ -217,6 +217,16 @@ func ApplyUpdate(data []byte) (Relaunch, error) {
 	}
 	if runtime.GOOS == "darwin" {
 		if bundle := appBundle(exe); bundle != "" {
+			if isMacTranslocation(bundle) {
+				installed, err := UserInstallPath()
+				if err != nil {
+					return Relaunch{}, err
+				}
+				if !isDir(installed) {
+					return Relaunch{}, errors.New("the installed Mac app was not found")
+				}
+				bundle = installed
+			}
 			if err := ReplaceAppBundle(bundle, data); err != nil {
 				return Relaunch{}, err
 			}
@@ -345,6 +355,11 @@ func CleanupOldVersion() {
 		_ = os.Remove(p + ".old")
 	}
 	if b := appBundle(exe); b != "" {
+		if isMacTranslocation(b) {
+			if installed, err := UserInstallPath(); err == nil {
+				b = installed
+			}
+		}
 		_ = os.RemoveAll(b + ".old")
 	}
 }

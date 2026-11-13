@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"runtime"
 	"sync/atomic"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -18,6 +19,9 @@ var assets embed.FS
 
 //go:embed trayicon.png
 var trayIcon []byte
+
+//go:embed build/appicon.png
+var appIcon []byte
 
 func init() {
 
@@ -57,6 +61,7 @@ func main() {
 	app := application.New(application.Options{
 		Name:        "WoWCensus Companion",
 		Description: "Watches WoWCensus SavedVariables and uploads them with your consent",
+		Icon:        appIcon,
 		Services:    []application.Service{application.NewService(svc)},
 		Assets:      application.AssetOptions{Handler: application.AssetFileServerFS(assets)},
 		Mac: application.MacOptions{
@@ -112,7 +117,12 @@ func main() {
 	})
 
 	tray := app.SystemTray.New()
-	tray.SetIcon(trayIcon)
+	if runtime.GOOS == "darwin" {
+		tray.SetTemplateIcon(trayIcon)
+		tray.SetLabel("WC")
+	} else {
+		tray.SetIcon(trayIcon)
+	}
 	tray.SetTooltip("WoWCensus Companion")
 	tray.SetMenu(menu)
 	tray.OnClick(show)

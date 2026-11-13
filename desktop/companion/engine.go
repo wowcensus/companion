@@ -112,6 +112,7 @@ func NewEngine(appDir string) (*Engine, error) {
 		httpClient:       &http.Client{Timeout: addonDownloadLimit},
 	}
 	e.status.Files = []FileStatus{}
+	e.status.AutoUpload = cfg.AutoUpload
 	e.status.Addon.Installs = []AddonInstall{}
 	e.status.Update.Current = AppVersion
 	e.status.Log = []LogEntry{}

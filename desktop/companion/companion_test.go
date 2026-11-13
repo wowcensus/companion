@@ -42,6 +42,22 @@ func writeOld(t *testing.T, p, content string) {
 	}
 }
 
+func TestInitialStatusUsesSavedUploadSetting(t *testing.T) {
+	dir := t.TempDir()
+	cfg := DefaultConfig()
+	cfg.AutoUpload = true
+	if err := SaveConfig(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	e, err := NewEngine(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !e.Status().AutoUpload {
+		t.Fatal("initial status should reflect saved automatic uploads")
+	}
+}
+
 func TestDiscoverFindsEditionsAndAccounts(t *testing.T) {
 	root := t.TempDir()
 	a := makeInstall(t, root, "_retail_", "ACCOUNT1", "WoWCensusDB = {}")

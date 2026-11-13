@@ -32,8 +32,9 @@
       <span>Share your WoWCensus data with wowcensus.io? Each new save is uploaded automatically: character names, realms and census data, never your file paths or account name.</span>
       <button type="button" id="btn-enable">Turn on uploads</button>
     </div>
-    <table class="files">
-      <thead><tr><th>Edition</th><th>Account</th><th>Size</th><th>Saved</th><th>Upload</th></tr></thead>
+    <p id="found" class="found">Looking for your WoWCensus saves…</p>
+    <table class="files" id="files-table" hidden>
+      <thead><tr><th>Game version</th><th>Account</th><th>Size</th><th>Last saved</th><th>Upload</th></tr></thead>
       <tbody id="files"></tbody>
     </table>
     <p id="no-files" class="muted" hidden>No WoWCensus.lua found yet. Add your World of Warcraft folder in Settings, then /reload or log out in game.</p>

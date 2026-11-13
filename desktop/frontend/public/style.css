@@ -37,6 +37,10 @@ table.files { width: 100%; border-collapse: collapse; }
 .files th, .files td { text-align: left; padding: 8px; border-bottom: 1px solid var(--line); }
 .files th { color: var(--muted); font-weight: 500; font-size: 12px; }
 .big { color: var(--warn); font-weight: 600; }
+.found { margin: 4px 0 12px; font-size: 15px; }
+.found.ok { color: var(--ok); }
+.found.warn { color: var(--warn); }
+button:disabled { opacity: 0.6; cursor: default; }
 .pill { display: inline-block; padding: 2px 8px; border-radius: 10px; background: var(--line); font-size: 12px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
 .pill.ok { background: #183a2a; color: var(--ok); }
 .pill.warn { background: #3a2e17; color: var(--warn); }

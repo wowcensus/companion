@@ -1,0 +1,3 @@
+ADMIN_TOKEN=local-admin-token-change-me
+INGEST_TOKEN=local-ingest-token-change-me
+IP_HASH_SALT=local-ip-salt-change-me

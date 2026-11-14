@@ -90,17 +90,8 @@ jobs:
         working-directory: wowcensus-companion
         run: |
           wails3 build
-          New-Item -ItemType Directory -Force out, "stage/WoWCensus Companion" | Out-Null
-          Copy-Item bin/wowcensus-companion.exe "out/WoWCensus-Companion-$env:VERSION-windows.exe"
+          New-Item -ItemType Directory -Force out | Out-Null
           Copy-Item bin/wowcensus-companion.exe "out/wowcensus-companion.exe"
-          Copy-Item bin/wowcensus-companion.exe "stage/WoWCensus Companion/WoWCensus Companion.exe"
-          Compress-Archive -Path "stage/WoWCensus Companion" -DestinationPath "out/WoWCensus-Companion-$env:VERSION-windows.zip"
-          choco install innosetup --no-progress -y
-          if ($LASTEXITCODE -ne 0) { throw "Inno Setup installation failed" }
-          $env:SOURCE_EXE = (Resolve-Path bin/wowcensus-companion.exe).Path
-          $env:OUTPUT_DIR = (Resolve-Path out).Path
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "$env:GITHUB_WORKSPACE/scripts/windows-installer.iss"
-          if ($LASTEXITCODE -ne 0) { throw "Windows installer build failed" }
           Get-ChildItem out | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name } | Set-Content -Encoding ascii out/SHA256SUMS-windows.txt
 
       - name: Build macOS
@@ -111,7 +102,6 @@ jobs:
           mkdir -p out stage
           ditto bin/wowcensus-companion.app "stage/WoWCensus Companion.app"
           ditto -c -k --keepParent "stage/WoWCensus Companion.app" "out/WoWCensus-Companion-$VERSION-macos.zip"
-          hdiutil create -volname "WoWCensus Companion" -srcfolder stage -ov -format UDZO "out/WoWCensus-Companion-$VERSION-macos.dmg"
           (cd out && shasum -a 256 * > SHA256SUMS-macos.txt)
 
       - name: Build Linux
@@ -119,13 +109,9 @@ jobs:
         working-directory: wowcensus-companion
         run: |
           wails3 task linux:build
-          wails3 task linux:create:appimage || echo "AppImage step failed; publishing the plain binary only"
-          mkdir -p out stage
-          cp bin/wowcensus-companion "out/WoWCensus-Companion-$VERSION-linux-x86_64"
-          chmod +x "out/WoWCensus-Companion-$VERSION-linux-x86_64"
-          cp bin/wowcensus-companion stage/wowcensus-companion
-          tar -C stage -czf "out/WoWCensus-Companion-$VERSION-linux-x86_64.tar.gz" wowcensus-companion
-          for f in bin/*.AppImage; do [ -e "$f" ] && cp "$f" "out/WoWCensus-Companion-$VERSION-linux-x86_64.AppImage"; done
+          wails3 task linux:create:appimage
+          mkdir -p out
+          cp bin/*.AppImage "out/WoWCensus-Companion-$VERSION-linux-x86_64.AppImage"
           (cd out && sha256sum * > SHA256SUMS-linux.txt)
 
       - name: Attach files to the release

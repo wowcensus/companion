@@ -238,11 +238,16 @@ form.addEventListener("submit", async (e) => {
   }
 });
 
-$("#language-select").addEventListener("change", (e) => {
+$("#language-select").addEventListener("change", async (e) => {
   setLanguage(e.target.value);
   if (lastStatus) {
     renderStatus(lastStatus);
   }
+  try {
+    const cur = await CompanionService.GetSettings();
+    cur.language = e.target.value;
+    await CompanionService.SaveSettings(cur);
+  } catch {}
 });
 
 $("#btn-enable").onclick = async () => {

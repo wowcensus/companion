@@ -49,7 +49,8 @@ fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 14px; 
 legend { padding: 0 6px; color: var(--accent); font-weight: 600; }
 label { display: block; margin: 6px 0; }
 label.check { display: flex; align-items: center; gap: 8px; }
-input:not([type=checkbox]), textarea { display: block; width: 100%; margin-top: 4px; padding: 7px 9px; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+input:not([type=checkbox]), textarea, select { display: block; width: 100%; margin-top: 4px; padding: 7px 9px; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+select option { background: var(--panel); color: var(--text); }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0 12px; }
 .save-row { display: flex; justify-content: flex-end; align-items: center; gap: 12px; }
 .error { color: var(--err); }

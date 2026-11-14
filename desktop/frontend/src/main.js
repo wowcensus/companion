@@ -1,17 +1,35 @@
 import {Events} from "@wailsio/runtime";
 import {CompanionService} from "../bindings/wowcensuscompanion";
+import {
+  t,
+  setLanguage,
+  getLanguage,
+  getStoredLanguage,
+  getEditionName,
+  formatMissingAddon,
+  formatFoundSaves,
+} from "./i18n.js";
 
 const $ = (sel) => document.querySelector(sel);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const mb = (n) => n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : (n / 1024).toFixed(0) + " KB";
-const when = (t) => {
-  if (!t) return "—";
-  const d = t instanceof Date ? t : new Date(t);
-  if (isNaN(d.getTime()) || d.getFullYear() < 2000) return "—";
-  return d.toLocaleDateString() + " " + d.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+
+const localeMap = {
+  ko: "ko-KR",
+  es: "es-ES",
+  de: "de-DE",
+  fr: "fr-FR",
+  it: "it-IT",
+  en: "en-US",
 };
-const editions = {retail: "Retail", classic_era: "Classic Era", anniversary: "TBC Anniversary", classic: "MoP Classic", forever: "Forever", classic_beta: "Classic Beta", ptr: "PTR", xptr: "PTR", beta: "Beta"};
-const editionName = (e) => editions[e] || String(e || "").replace(/_/g, " ");
+
+const when = (tVal) => {
+  if (!tVal) return "—";
+  const d = tVal instanceof Date ? tVal : new Date(tVal);
+  if (isNaN(d.getTime()) || d.getFullYear() < 2000) return "—";
+  const loc = localeMap[getLanguage()] || undefined;
+  return d.toLocaleDateString(loc) + " " + d.toLocaleTimeString(loc, {hour: "2-digit", minute: "2-digit"});
+};
 
 document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => {
   document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("active", x === b));
@@ -19,16 +37,17 @@ document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("cli
 }));
 
 let installing = false;
+let lastStatus = null;
 
 function uploadCell(f, autoUpload) {
   const r = f.lastReceipt;
-  if (f.uploaded && r?.status === "imported") return `<span class="pill ok">On wowcensus.io</span>`;
-  if (f.uploaded && r?.status === "failed") return `<span class="pill warn" title="The server could not use this save">Not used</span>`;
-  if (f.uploaded) return `<span class="pill ok" title="Waiting to be added to wowcensus.io">Uploaded ${when(r?.at)}</span>`;
-  if (f.nextRetry) return `<span class="pill err" title="${esc(f.lastError)}">Retrying ${when(f.nextRetry)}</span>`;
+  if (f.uploaded && r?.status === "imported") return `<span class="pill ok">${t("pill.onSite")}</span>`;
+  if (f.uploaded && r?.status === "failed") return `<span class="pill warn" title="${t("pill.notUsedTitle")}">${t("pill.notUsed")}</span>`;
+  if (f.uploaded) return `<span class="pill ok" title="${t("pill.uploadedTitle")}">${t("pill.uploaded", { when: when(r?.at) })}</span>`;
+  if (f.nextRetry) return `<span class="pill err" title="${esc(f.lastError)}">${t("pill.retrying", { when: when(f.nextRetry) })}</span>`;
   if (f.lastError) return `<span class="pill warn" title="${esc(f.lastError)}">${esc(f.lastError)}</span>`;
-  if (!autoUpload) return `<span class="pill">Uploads off</span>`;
-  return `<span class="pill">Waiting…</span>`;
+  if (!autoUpload) return `<span class="pill">${t("pill.uploadsOff")}</span>`;
+  return `<span class="pill">${t("pill.waiting")}</span>`;
 }
 
 function renderAddon(a) {
@@ -37,29 +56,31 @@ function renderAddon(a) {
   const list = $("#addon-list");
   const btn = $("#btn-addon");
   if (!installs.length) {
-    $("#addon-summary").textContent = "No World of Warcraft installation found. If WoW is installed somewhere unusual, add its folder in Settings.";
+    $("#addon-summary").textContent = t("addon.notFound");
     list.innerHTML = "";
     btn.hidden = true;
     return;
   }
   list.innerHTML = installs.map((i) => {
     const state = !i.installed
-      ? `<span class="pill">Not installed</span>`
+      ? `<span class="pill">${t("addon.notInstalled")}</span>`
       : latest && i.installed !== latest
-        ? `<span class="pill warn">Version ${esc(i.installed)}, update available</span>`
-        : `<span class="pill ok">Installed ${esc(i.installed)}</span>`;
-    return `<li><span>${esc(editionName(i.edition))}</span>${state}</li>`;
+        ? `<span class="pill warn">${t("addon.updateAvailable", { version: esc(i.installed) })}</span>`
+        : `<span class="pill ok">${t("addon.installed", { version: esc(i.installed) })}</span>`;
+    return `<li><span>${esc(getEditionName(i.edition))}</span>${state}</li>`;
   }).join("");
   const missing = installs.filter((i) => !i.installed).length;
   const outdated = latest ? installs.filter((i) => i.installed && i.installed !== latest).length : 0;
   if (missing || outdated) {
     $("#addon-summary").textContent = missing
-      ? `Not installed for ${missing} of your ${installs.length} game version${installs.length === 1 ? "" : "s"}.`
-      : "An update is available.";
-    if (!installing) btn.textContent = missing ? "Install add-on" : "Update add-on";
+      ? formatMissingAddon(missing, installs.length)
+      : t("addon.hasUpdate");
+    if (!installing) btn.textContent = missing ? t("addon.install") : t("addon.update");
     btn.hidden = false;
   } else {
-    $("#addon-summary").textContent = latest ? `Up to date (version ${latest}) in all your game versions.` : "Installed in all your game versions.";
+    $("#addon-summary").textContent = latest
+      ? t("addon.upToDate", { version: latest })
+      : t("addon.allInstalled");
     btn.hidden = true;
   }
   if (!installing) btn.disabled = false;
@@ -78,48 +99,52 @@ function renderUpdate(u) {
   }
   banner.hidden = false;
   if (updating || u.installing) {
-    $("#update-text").textContent = `Installing version ${u.version}… the app will restart by itself.`;
+    $("#update-text").textContent = t("update.installing", { version: u.version });
     $("#btn-update").disabled = true;
     return;
   }
   if (u.downloading) {
-    $("#update-text").textContent = `Downloading and verifying version ${u.version}…`;
+    $("#update-text").textContent = t("update.downloading", { version: u.version });
     $("#btn-update").disabled = true;
     return;
   }
   if (u.ready) {
     $("#update-text").textContent = u.error
-      ? `Version ${u.version} is ready, but the last restart failed: ${u.error}`
-      : `Version ${u.version} is ready. Restart to update.`;
+      ? t("update.readyFailed", { version: u.version, error: u.error })
+      : t("update.ready", { version: u.version });
     $("#btn-update").disabled = false;
-    $("#btn-update").textContent = "Restart to update";
+    $("#btn-update").textContent = t("update.restartBtn");
     return;
   }
   $("#update-text").textContent = u.error
-    ? `Version ${u.version} is available, but the download failed: ${u.error}`
-    : `Version ${u.version} is available (you have ${u.current}).`;
+    ? t("update.availableFailed", { version: u.version, error: u.error })
+    : t("update.available", { version: u.version, current: u.current });
   $("#btn-update").disabled = false;
-  $("#btn-update").textContent = "Retry download";
+  $("#btn-update").textContent = t("update.retryBtn");
 }
 
 function renderStatus(s) {
+  if (!s) return;
+  lastStatus = s;
   const files = s.files || [];
-  const busy = s.busy === "Uploading" ? " · uploading…" : "";
-  $("#summary").textContent =
-    `${s.running ? "Watching for new saves" : "Stopped"} · uploads ${s.autoUpload ? "on" : "off"} · last checked ${when(s.lastScan)}${busy}`;
+  const busy = s.busy === "Uploading" ? t("status.uploading") : "";
+  const watchingText = s.running ? t("status.watching") : t("status.stopped");
+  const uploadsText = s.autoUpload ? t("status.uploadsOn") : t("status.uploadsOff");
+  const lastCheckedText = t("status.lastChecked", { when: when(s.lastScan) });
+  $("#summary").textContent = `${watchingText} · ${uploadsText} · ${lastCheckedText}${busy}`;
   $("#consent-banner").hidden = !!s.autoUpload;
   const scanned = when(s.lastScan) !== "—";
   const versions = new Set(files.map((f) => f.edition)).size;
   $("#found").textContent = !scanned
-    ? "Looking for your WoWCensus saves…"
+    ? t("saves.looking")
     : files.length
-      ? `Found ${files.length} WoWCensus save${files.length === 1 ? "" : "s"} in ${versions} game version${versions === 1 ? "" : "s"}.`
-      : "No WoWCensus saves found yet.";
+      ? formatFoundSaves(files.length, versions)
+      : t("saves.noFiles");
   $("#found").className = "found " + (files.length ? "ok" : scanned ? "warn" : "");
   $("#files-table").hidden = files.length === 0;
   $("#no-files").hidden = files.length > 0 || !scanned;
   $("#files").innerHTML = files.map((f) => `<tr title="${esc(f.path)}">
-      <td>${esc(editionName(f.edition))}</td><td>${esc(f.account)}</td>
+      <td>${esc(getEditionName(f.edition))}</td><td>${esc(f.account)}</td>
       <td>${mb(f.bytes)}</td><td>${when(f.modTime)}</td><td>${uploadCell(f, s.autoUpload)}</td></tr>`).join("");
   renderAddon(s.addon);
   renderUpdate(s.update);
@@ -128,6 +153,9 @@ function renderStatus(s) {
     `<li class="${esc(l.level)}"><time>${when(l.at)}</time> ${esc(l.message)}</li>`).join("");
 }
 
+// Initialize language from stored setting or system default
+setLanguage(getStoredLanguage() || "auto");
+
 Events.On("status", (ev) => renderStatus(ev.data));
 CompanionService.GetStatus().then(renderStatus);
 
@@ -135,10 +163,11 @@ $("#btn-addon").onclick = async () => {
   const btn = $("#btn-addon");
   installing = true;
   btn.disabled = true;
-  btn.textContent = "Installing…";
+  btn.textContent = t("addon.installing");
   $("#addon-msg").textContent = "";
   try {
-    $("#addon-msg").textContent = (await CompanionService.InstallAddon()) + " Restart World of Warcraft (or type /reload) to load it.";
+    const res = await CompanionService.InstallAddon();
+    $("#addon-msg").textContent = `${res} ${t("addon.restartHint")}`;
   } catch (err) {
     $("#addon-msg").textContent = String(err?.message || err);
   } finally {
@@ -160,7 +189,7 @@ $("#btn-update").onclick = async () => {
   }
   updating = true;
   $("#btn-update").disabled = true;
-  $("#update-text").textContent = "Installing the update… the app will restart by itself.";
+  $("#update-text").textContent = t("update.installingProgress");
   try {
     await CompanionService.InstallUpdate();
   } catch (err) {
@@ -175,6 +204,12 @@ function fillSettings(v) {
   form.elements.autoUpload.checked = !!v.autoUpload;
   form.elements.startAtLogin.checked = !!v.startAtLogin;
   form.elements.wowRoots.value = (v.wowRoots || []).join("\n");
+  const lang = v.language || getStoredLanguage() || "auto";
+  form.elements.language.value = lang;
+  setLanguage(lang);
+  if (lastStatus) {
+    renderStatus(lastStatus);
+  }
 }
 
 function readSettings() {
@@ -182,6 +217,7 @@ function readSettings() {
     autoUpload: form.elements.autoUpload.checked,
     startAtLogin: form.elements.startAtLogin.checked,
     wowRoots: form.elements.wowRoots.value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean),
+    language: form.elements.language.value,
   };
 }
 
@@ -194,10 +230,18 @@ function msg(text, isErr) {
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   try {
-    fillSettings(await CompanionService.SaveSettings(readSettings()));
-    msg("Saved.");
+    const saved = await CompanionService.SaveSettings(readSettings());
+    fillSettings(saved);
+    msg(t("settings.saved"));
   } catch (err) {
     msg(String(err?.message || err), true);
+  }
+});
+
+$("#language-select").addEventListener("change", (e) => {
+  setLanguage(e.target.value);
+  if (lastStatus) {
+    renderStatus(lastStatus);
   }
 });
 
@@ -215,8 +259,8 @@ $("#btn-detect").onclick = async () => {
   const roots = form.elements.wowRoots.value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
   const found = await CompanionService.DetectInstalls(roots);
   $("#detected").innerHTML = found.length
-    ? found.map((f) => `<li><b>${esc(editionName(f.edition))}</b> · ${esc(f.account)}<br><small>${esc(f.path)}</small></li>`).join("")
-    : "<li class='muted'>No WoWCensus saves found in those folders yet.</li>";
+    ? found.map((f) => `<li><b>${esc(getEditionName(f.edition))}</b> · ${esc(f.account)}<br><small>${esc(f.path)}</small></li>`).join("")
+    : `<li class='muted'>${t("settings.noSavesInFolders")}</li>`;
 };
 
 CompanionService.GetSettings().then(fillSettings);

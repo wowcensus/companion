@@ -41,6 +41,7 @@ type Config struct {
 	BackupDir       string `json:"backupDir"`
 	BackupKeep      int    `json:"backupKeep"`
 	BackupCapMB     int    `json:"backupCapMB"`
+	Language        string `json:"language,omitempty"`
 }
 
 func DefaultConfig() Config {
@@ -66,6 +67,7 @@ func (c *Config) Normalize() {
 	}
 	c.ServerURL = strings.TrimRight(strings.TrimSpace(c.ServerURL), "/")
 	c.DeviceToken = strings.TrimSpace(c.DeviceToken)
+	c.Language = strings.TrimSpace(c.Language)
 	roots := c.WoWRoots[:0]
 	seen := map[string]bool{}
 	for _, r := range c.WoWRoots {

@@ -2,10 +2,12 @@ package main
 
 import (
 	"embed"
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"sync/atomic"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -13,6 +15,75 @@ import (
 
 	"wowcensuscompanion/companion"
 )
+
+type trayStrings struct {
+	open    string
+	update  string
+	version string
+	quit    string
+}
+
+var trayTranslations = map[string]trayStrings{
+	"en": {
+		open:    "Open WoWCensus Companion",
+		update:  "Update available",
+		version: "Update to version %s",
+		quit:    "Quit",
+	},
+	"ko": {
+		open:    "WoWCensus Companion 열기",
+		update:  "업데이트 가능",
+		version: "%s 버전으로 업데이트",
+		quit:    "종료",
+	},
+	"es": {
+		open:    "Abrir WoWCensus Companion",
+		update:  "Actualización disponible",
+		version: "Actualizar a la versión %s",
+		quit:    "Salir",
+	},
+	"de": {
+		open:    "WoWCensus Companion öffnen",
+		update:  "Aktualisierung verfügbar",
+		version: "Auf Version %s aktualisieren",
+		quit:    "Beenden",
+	},
+	"fr": {
+		open:    "Ouvrir WoWCensus Companion",
+		update:  "Mise à jour disponible",
+		version: "Mettre à jour vers la version %s",
+		quit:    "Quitter",
+	},
+	"it": {
+		open:    "Apri WoWCensus Companion",
+		update:  "Aggiornamento disponibile",
+		version: "Aggiorna alla versione %s",
+		quit:    "Esci",
+	},
+}
+
+func detectSystemLang() string {
+	for _, env := range []string{"LC_ALL", "LC_MESSAGES", "LANG"} {
+		if val := strings.ToLower(os.Getenv(env)); val != "" {
+			for _, code := range []string{"ko", "es", "de", "fr", "it"} {
+				if strings.HasPrefix(val, code) {
+					return code
+				}
+			}
+		}
+	}
+	return "en"
+}
+
+func getTrayStrings(lang string) trayStrings {
+	if lang == "" || lang == "auto" {
+		lang = detectSystemLang()
+	}
+	if ts, ok := trayTranslations[lang]; ok {
+		return ts
+	}
+	return trayTranslations["en"]
+}
 
 //go:embed all:frontend/dist
 var assets embed.FS
@@ -101,15 +172,42 @@ func main() {
 		app.Quit()
 	}
 	svc.quit = quit
+
 	menu := application.NewMenu()
-	menu.Add("Open WoWCensus Companion").OnClick(func(*application.Context) { show() })
-	updateItem := menu.Add("Update available").OnClick(func(*application.Context) { show() })
+	curLang := engine.Config().Language
+	tStr := getTrayStrings(curLang)
+	var latestVersion string
+
+	openItem := menu.Add(tStr.open).OnClick(func(*application.Context) { show() })
+	updateItem := menu.Add(tStr.update).OnClick(func(*application.Context) { show() })
 	updateItem.SetHidden(true)
 	menu.AddSeparator()
-	menu.Add("Quit").OnClick(func(*application.Context) { quit() })
+	quitItem := menu.Add(tStr.quit).OnClick(func(*application.Context) { quit() })
+
+	updateTrayLabels := func(lang string) {
+		curLang = lang
+		ts := getTrayStrings(curLang)
+		openItem.SetLabel(ts.open)
+		if latestVersion != "" {
+			updateItem.SetLabel(fmt.Sprintf(ts.version, latestVersion))
+		} else {
+			updateItem.SetLabel(ts.update)
+		}
+		quitItem.SetLabel(ts.quit)
+		menu.Update()
+	}
+
+	svc.onLanguageChange = func(lang string) {
+		application.InvokeSync(func() {
+			updateTrayLabels(lang)
+		})
+	}
+
 	engine.OnUpdateFound(func(version string) {
 		application.InvokeSync(func() {
-			updateItem.SetLabel("Update to version " + version)
+			latestVersion = version
+			ts := getTrayStrings(curLang)
+			updateItem.SetLabel(fmt.Sprintf(ts.version, version))
 			updateItem.SetHidden(false)
 			menu.Update()
 			show()

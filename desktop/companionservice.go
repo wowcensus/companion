@@ -11,10 +11,11 @@ import (
 )
 
 type CompanionService struct {
-	engine *companion.Engine
-	quit   func()
-	ctx    context.Context
-	cancel context.CancelFunc
+	engine           *companion.Engine
+	quit             func()
+	ctx              context.Context
+	cancel           context.CancelFunc
+	onLanguageChange func(string)
 }
 
 type Settings struct {
@@ -22,6 +23,7 @@ type Settings struct {
 	StartAtLogin bool     `json:"startAtLogin"`
 	WoWRoots     []string `json:"wowRoots"`
 	Registered   bool     `json:"registered"`
+	Language     string   `json:"language,omitempty"`
 }
 
 func (s *CompanionService) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
@@ -50,6 +52,7 @@ func (s *CompanionService) GetSettings() Settings {
 		StartAtLogin: cfg.StartAtLogin && companion.StartAtLoginEnabled(),
 		WoWRoots:     cfg.WoWRoots,
 		Registered:   cfg.DeviceToken != "",
+		Language:     cfg.Language,
 	}
 }
 
@@ -58,8 +61,12 @@ func (s *CompanionService) SaveSettings(in Settings) (Settings, error) {
 	cfg.AutoUpload = in.AutoUpload
 	cfg.StartAtLogin = in.StartAtLogin
 	cfg.WoWRoots = in.WoWRoots
+	cfg.Language = in.Language
 	if err := s.engine.UpdateConfig(cfg); err != nil {
 		return s.GetSettings(), err
+	}
+	if s.onLanguageChange != nil {
+		s.onLanguageChange(cfg.Language)
 	}
 	return s.GetSettings(), nil
 }

@@ -10,66 +10,85 @@
 <header class="top">
   <div>
     <h1>WoWCensus Companion</h1>
-    <p class="sub" id="summary">Starting…</p>
+    <p class="sub" id="summary" data-i18n="app.starting">Starting…</p>
   </div>
 </header>
 
 <nav class="tabs" role="tablist">
-  <button role="tab" data-tab="status" class="active">Status</button>
-  <button role="tab" data-tab="settings">Settings</button>
-  <button role="tab" data-tab="activity">Activity</button>
+  <button role="tab" data-tab="status" class="active" data-i18n="tabs.status">Status</button>
+  <button role="tab" data-tab="settings" data-i18n="tabs.settings">Settings</button>
+  <button role="tab" data-tab="activity" data-i18n="tabs.activity">Activity</button>
 </nav>
 
 <main>
   <section id="tab-status" class="panel active">
     <div id="update-banner" class="banner update" hidden>
-      <span id="update-text">A new version is available.</span>
-      <button type="button" id="btn-update">Update now</button>
+      <span id="update-text" data-i18n="banner.updateAvailable">A new version is available.</span>
+      <button type="button" id="btn-update" data-i18n="banner.updateNow">Update now</button>
     </div>
     <div id="consent-banner" class="banner" hidden>
-      <span>Share your WoWCensus data with wowcensus.io? Each new save is uploaded automatically: character names, realms and census data, never your file paths or account name.</span>
-      <button type="button" id="btn-enable">Turn on uploads</button>
+      <span data-i18n="banner.consent">Share your WoWCensus data with wowcensus.io? Each new save is uploaded automatically: character names, realms and census data, never your file paths or account name.</span>
+      <button type="button" id="btn-enable" data-i18n="banner.turnOnUploads">Turn on uploads</button>
     </div>
 
     <div class="card" id="addon-card">
       <div class="card-head">
         <div>
-          <h2>WoWCensus add-on</h2>
-          <p class="muted" id="addon-summary">Checking your game folders…</p>
+          <h2 data-i18n="addon.cardTitle">WoWCensus add-on</h2>
+          <p class="muted" id="addon-summary" data-i18n="addon.checking">Checking your game folders…</p>
         </div>
-        <button type="button" id="btn-addon" hidden>Install add-on</button>
+        <button type="button" id="btn-addon" hidden data-i18n="addon.install">Install add-on</button>
       </div>
       <ul class="addon-list" id="addon-list"></ul>
       <p class="muted small" id="addon-msg"></p>
     </div>
 
-    <h2>Your saves</h2>
-    <p id="found" class="found">Looking for your WoWCensus saves…</p>
+    <h2 data-i18n="saves.title">Your saves</h2>
+    <p id="found" class="found" data-i18n="saves.looking">Looking for your WoWCensus saves…</p>
     <table class="files" id="files-table" hidden>
-      <thead><tr><th>Game version</th><th>Account</th><th>Size</th><th>Last saved</th><th>Upload</th></tr></thead>
+      <thead><tr>
+        <th data-i18n="table.gameVersion">Game version</th>
+        <th data-i18n="table.account">Account</th>
+        <th data-i18n="table.size">Size</th>
+        <th data-i18n="table.lastSaved">Last saved</th>
+        <th data-i18n="table.upload">Upload</th>
+      </tr></thead>
       <tbody id="files"></tbody>
     </table>
-    <p id="no-files" class="muted" hidden>Install the add-on above, log in to a character, and type /reload once. Your save will show up here.</p>
+    <p id="no-files" class="muted" hidden data-i18n="saves.emptyHint">Install the add-on above, log in to a character, and type /reload once. Your save will show up here.</p>
   </section>
 
   <section id="tab-settings" class="panel">
     <form id="settings">
       <fieldset>
-        <legend>Sharing</legend>
-        <label class="check"><input type="checkbox" name="autoUpload"/> Upload new WoWCensus saves automatically</label>
-        <p class="hint">Uploads include your WoWCensus.lua (character names, realms, census data). Your file paths and account folder are never sent.</p>
-        <label class="check"><input type="checkbox" name="startAtLogin"/> Start when I log in to my computer (runs in the tray)</label>
+        <legend data-i18n="settings.language">Language</legend>
+        <label for="language-select" data-i18n="settings.languageLabel">Interface language</label>
+        <select id="language-select" name="language">
+          <option value="auto" data-i18n="settings.langAuto">System default</option>
+          <option value="en">English</option>
+          <option value="ko">한국어</option>
+          <option value="es">Español</option>
+          <option value="de">Deutsch</option>
+          <option value="fr">Français</option>
+          <option value="it">Italiano</option>
+        </select>
       </fieldset>
       <fieldset>
-        <legend>World of Warcraft folders</legend>
+        <legend data-i18n="settings.sharing">Sharing</legend>
+        <label class="check"><input type="checkbox" name="autoUpload"/> <span data-i18n="settings.autoUpload">Upload new WoWCensus saves automatically</span></label>
+        <p class="hint" data-i18n="settings.autoUploadHint">Uploads include your WoWCensus.lua (character names, realms, census data). Your file paths and account folder are never sent.</p>
+        <label class="check"><input type="checkbox" name="startAtLogin"/> <span data-i18n="settings.startAtLogin">Start when I log in to my computer (runs in the tray)</span></label>
+      </fieldset>
+      <fieldset>
+        <legend data-i18n="settings.wowFolders">World of Warcraft folders</legend>
         <textarea name="wowRoots" rows="3" placeholder="C:\Program Files (x86)\World of Warcraft"></textarea>
-        <p class="hint">Only needed if WoW is installed somewhere unusual. One folder per line.</p>
-        <button type="button" id="btn-detect" class="ghost small">Check folders</button>
+        <p class="hint" data-i18n="settings.wowFoldersHint">Only needed if WoW is installed somewhere unusual. One folder per line.</p>
+        <button type="button" id="btn-detect" class="ghost small" data-i18n="settings.checkFolders">Check folders</button>
         <ul id="detected" class="detected"></ul>
       </fieldset>
       <div class="save-row">
         <span id="save-msg" class="muted"></span>
-        <button type="submit">Save settings</button>
+        <button type="submit" data-i18n="settings.saveSettings">Save settings</button>
       </div>
     </form>
   </section>

@@ -18,15 +18,10 @@ const (
 	combatLogKey      = "combatlog"
 	combatLogQuiet    = 10 * time.Minute
 	maxCombatLogBytes = 2 << 30
+	maxCombatFields   = 43
 )
 
-var (
-	combatLogNameRe   = regexp.MustCompile(`(?i)^WoWCombatLog.*\.txt$`)
-	combatPlayerRe    = regexp.MustCompile(`Player-\d+-[0-9A-Fa-f]+`)
-	combatEventPrefix = []string{"SWING_", "SPELL_", "RANGE_", "DAMAGE_", "UNIT_DIED", "UNIT_DESTROYED", "PARTY_KILL"}
-)
-
-const anonymousPlayer = "Player-0-00000000"
+var combatLogNameRe = regexp.MustCompile(`(?i)^WoWCombatLog.*\.txt$`)
 
 func discoverCombatLogs(edDir, edition string) []AddonFile {
 	dir := filepath.Join(edDir, "Logs")
@@ -50,94 +45,51 @@ func discoverCombatLogs(edDir, edition string) []AddonFile {
 	return out
 }
 
-func splitCombatFields(s string) []string {
-	var out []string
-	start, quoted := 0, false
-	for i := 0; i < len(s); i++ {
-		switch s[i] {
-		case '"':
-			quoted = !quoted
-		case ',':
-			if !quoted {
-				out = append(out, s[start:i])
-				start = i + 1
-			}
-		}
-	}
-	return append(out, s[start:])
-}
-
-func combatEventKept(ev string) bool {
-	for _, p := range combatEventPrefix {
-		if strings.HasPrefix(ev, p) {
-			return true
-		}
-	}
-	return false
-}
-
-func playerOwned(guid string) bool {
-	return strings.HasPrefix(guid, "Player-") || strings.HasPrefix(guid, "Pet-")
-}
-
-func filterCombatLine(line string) (string, bool) {
-	stamp, rest, ok := strings.Cut(line, "  ")
-	if !ok {
-		return "", false
-	}
-	f := splitCombatFields(rest)
-	switch f[0] {
-	case "COMBAT_LOG_VERSION", "MAP_CHANGE":
-		return line, true
-	}
-	if len(f) < 9 || !combatEventKept(f[0]) {
-		return "", false
-	}
-	if !strings.HasPrefix(f[1], "Creature-") && !strings.HasPrefix(f[5], "Creature-") {
-		return "", false
-	}
-	for _, i := range []int{1, 5} {
-		if playerOwned(f[i]) {
-			f[i+1] = `""`
-		}
-	}
-	for i := range f {
-		if strings.Contains(f[i], "Player-") {
-			f[i] = combatPlayerRe.ReplaceAllString(f[i], anonymousPlayer)
-		}
-	}
-	return stamp + "  " + strings.Join(f, ","), true
-}
-
 func FilterCombatLog(r io.Reader) ([]byte, int, error) {
 	br := bufio.NewReaderSize(r, 1<<20)
 	var out bytes.Buffer
-	advanced, events := false, 0
-	for {
-		line, err := br.ReadString('\n')
-		if len(line) > 0 {
-			line = strings.TrimRight(line, "\r\n")
-			if kept, ok := filterCombatLine(line); ok {
-				if strings.Contains(kept, "  COMBAT_LOG_VERSION,") {
-					f := splitCombatFields(strings.SplitN(kept, "  ", 2)[1])
-					if len(f) > 3 && f[2] == "ADVANCED_LOG_ENABLED" && f[3] == "1" {
-						advanced = true
-					}
-				} else if !strings.Contains(kept, "  MAP_CHANGE,") {
-					events++
-				}
-				out.WriteString(kept)
-				out.WriteByte('\n')
-			}
+	var version string
+	events := 0
+	for readErr := error(nil); readErr == nil; {
+		var line string
+		line, readErr = br.ReadString('\n')
+		if readErr != nil && readErr != io.EOF {
+			return nil, 0, readErr
 		}
-		if err == io.EOF {
-			break
+		line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
+		stamp, payload, ok := strings.Cut(line, "  ")
+		if !ok {
+			continue
 		}
-		if err != nil {
-			return nil, 0, err
+		event, _, _ := strings.Cut(payload, ",")
+		if event == "COMBAT_LOG_VERSION" {
+			version = ""
+		} else if version == "" {
+			continue
 		}
+		stamp = strings.TrimPrefix(stamp, "\ufeff")
+		var fields [maxCombatFields]string
+		f := splitCombatFields(payload, fields[:0])
+		if f == nil || !combatTimestampRe.MatchString(stamp) || !filterCombatRecord(f, version) {
+			continue
+		}
+		switch event {
+		case "COMBAT_LOG_VERSION":
+			version = f[1]
+		case "MAP_CHANGE":
+		default:
+			events++
+		}
+		out.WriteString(stamp)
+		out.WriteString("  ")
+		out.WriteString(f[0])
+		for _, field := range f[1:] {
+			out.WriteByte(',')
+			out.WriteString(field)
+		}
+		out.WriteByte('\n')
 	}
-	if !advanced || events == 0 {
+	if events == 0 {
 		return nil, 0, nil
 	}
 	return out.Bytes(), events, nil
